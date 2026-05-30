@@ -58,9 +58,19 @@ Config.State = {
     PLAYING = "playing",
     PHONE = "phone",
     SCANNING = "scanning",  -- 扫码小游戏进行中
+    SHOP = "shop",          -- 商店室内场景
+    CHASE = "chase",        -- 店主追击中
     EVENT = "event",        -- 广告/弹窗事件
     ENDING = "ending",
     GAMEOVER = "gameover",
+}
+
+-- 追击系统
+Config.Chase = {
+    ShopkeeperSpeed = 220,   -- 店主速度（略慢于玩家）
+    PlayerSpeedBoost = 280,  -- 追击时玩家加速
+    GiveUpDistance = 5,      -- 跑过几栋楼后放弃（用建筑数衡量）
+    CatchDistance = 30,      -- 被抓住的距离
 }
 
 -- 结局类型

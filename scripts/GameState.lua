@@ -32,9 +32,15 @@ function GameState.New()
         -- 交互
         nearbyInteractable = nil,
 
-        -- 物品
+        -- 物品（携带栏，最多5个）
         inventory = {},
+        inventoryMax = 5,
         money = 50.00,
+
+        -- 本局随机属性
+        phonePort = "typec",       -- 手机端口（每局随机）
+        outletType = "2hole",      -- 城市插座类型（每局随机）
+        shopStock = nil,           -- 商店货架库存（每局随机生成）
 
         -- 统计
         stats = {
@@ -91,6 +97,17 @@ end
 
 function GameState.RandomizeWorld(state)
     math.randomseed(os.time())
+
+    -- 随机手机端口
+    local ports = { "typec", "lightning", "microusb" }
+    state.phonePort = ports[math.random(1, #ports)]
+
+    -- 随机城市插座类型
+    local outlets = { "2hole", "3hole" }
+    state.outletType = outlets[math.random(1, #outlets)]
+
+    print("[GameState] 本局手机端口: " .. state.phonePort .. ", 插座类型: " .. state.outletType)
+
     -- 至少一条路线可通关
     local route = math.random(1, 2)
     if route == 1 then
@@ -107,6 +124,10 @@ function GameState.RandomizeWorld(state)
     -- NPC 行为
     state.world.npcWillHelp = math.random() > 0.4
     state.world.npcWillSteal = math.random() > 0.85
+
+    -- 生成商店货架库存
+    local ItemData = require("ItemData")
+    state.shopStock = ItemData.GenerateShopStock(state.phonePort, state.outletType)
 end
 
 return GameState

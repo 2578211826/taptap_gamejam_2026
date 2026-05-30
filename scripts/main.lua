@@ -15,6 +15,8 @@ local EventSystem = require("EventSystem")
 local ScanMiniGame = require("ScanMiniGame")
 local ShopScene = require("ShopScene")
 local ItemData = require("ItemData")
+local LoanApp = require("LoanApp")
+local AdSystem = require("AdSystem")
 
 -- ====================================================================
 -- 全局状态
@@ -49,6 +51,9 @@ local mouseDpr = 1.0
 local mousePressed = false       -- 当前按下状态
 local hoveredBtn = nil           -- 当前hover的按钮id
 local pressedBtn = nil           -- 当前按下的按钮id
+
+-- 贷款系统状态
+local loanAdCallback = nil       -- 广告关闭后的回调
 
 -- NPC 对话状态
 local npcDialogueOpen = false
@@ -125,6 +130,24 @@ function Start()
 
     -- 初始化手机 UI
     PhoneUI.Init(HandlePhoneEvent)
+
+    -- 初始化贷款系统
+    LoanApp.Init({
+        onAdTrigger = function(callback)
+            -- 触发广告，广告关闭后调用callback恢复流程
+            loanAdCallback = callback
+            local ad = AdSystem.TriggerAd(gs.battery)
+            PhoneUI.ShowAd(ad)
+            gs.battery = gs.battery - Config.Battery.DrainAd * 0.5
+            gs.stats.adWatchCount = gs.stats.adWatchCount + 1
+        end,
+        onLoanComplete = function(amount)
+            -- 贷款到账
+            gs.money = gs.money + amount
+            PhoneUI.UpdateBalance(gs.money)
+            print("[LoanApp] 贷款到账: ¥" .. amount)
+        end,
+    })
 
     -- 创建 UI
     CreateGameUI()
@@ -230,16 +253,35 @@ function CreateHUD()
                     },
                 }
             },
-            -- 移动提示（简化）
+            -- 手机号+移动提示
             UI.Panel {
-                padding = 6,
-                backgroundColor = { 0, 0, 0, 160 },
-                borderRadius = 8,
+                alignItems = "flex-end",
+                gap = 4,
                 children = {
-                    UI.Label {
-                        text = "AD移动 空格跳",
-                        fontSize = 9,
-                        fontColor = { 150, 150, 170, 255 },
+                    UI.Panel {
+                        padding = 6,
+                        backgroundColor = { 0, 0, 0, 160 },
+                        borderRadius = 8,
+                        children = {
+                            UI.Label {
+                                id = "phoneNumberHUD",
+                                text = "138****6752",
+                                fontSize = 10,
+                                fontColor = { 180, 200, 255, 255 },
+                            },
+                        }
+                    },
+                    UI.Panel {
+                        padding = 6,
+                        backgroundColor = { 0, 0, 0, 160 },
+                        borderRadius = 8,
+                        children = {
+                            UI.Label {
+                                text = "AD移动 空格跳",
+                                fontSize = 9,
+                                fontColor = { 150, 150, 170, 255 },
+                            },
+                        }
                     },
                 }
             },
@@ -854,13 +896,20 @@ function HandlePhoneEvent(event)
         -- 动画结束后会自动切回 PLAYING（见 HandleUpdate 中的检查）
         -- 这里不立即改状态，让滑出动画播放完
 
+    elseif event == "loan_start" then
+        -- 启动贷款流程（如果已激活则忽略重复点击）
+        if LoanApp.IsActive() then return end
+        LoanApp.Start()
+        -- 隐藏支付面板，防止底层按钮再次被点击
+        PhoneUI.HidePayPanel()
+
     elseif event == "app_open" then
         gs.battery = gs.battery - Config.Battery.CostOpenApp
         gs.stats.phoneOpenCount = gs.stats.phoneOpenCount + 1
         -- 可能弹广告
-        if EventSystem.ShouldShowAd(gs.battery) then
-            local ad = EventSystem.GetRandomAd()
-            PhoneUI.ShowAd(ad.title, ad.body)
+        if AdSystem.ShouldTrigger(gs.battery) then
+            local ad = AdSystem.TriggerAd(gs.battery)
+            PhoneUI.ShowAd(ad)
             gs.stats.adWatchCount = gs.stats.adWatchCount + 1
         end
 
@@ -883,7 +932,12 @@ function HandlePhoneEvent(event)
         PhoneUI.ShowFakeApp("电量守护", gs.battery)
 
     elseif event == "ad_closed" then
-        -- 关闭广告，继续
+        -- 广告关闭 → 如果有贷款回调，恢复贷款流程
+        if loanAdCallback then
+            local cb = loanAdCallback
+            loanAdCallback = nil
+            cb()
+        end
     end
 
     -- 检查电量
@@ -1194,6 +1248,12 @@ function HandleUpdate(eventType, eventData)
     -- 假应用页面更新（下载进度动画）
     if gs.phase == Config.State.PHONE then
         PhoneUI.UpdateFakeApp(dt)
+        PhoneUI.UpdateAd(dt)
+    end
+
+    -- 贷款系统更新（在手机打开时才运行）
+    if gs.phoneOpen and LoanApp.IsActive() then
+        LoanApp.Update(dt)
     end
 
     gs.stats.timeElapsed = gs.stats.timeElapsed + dt
@@ -1556,6 +1616,45 @@ function HandleKeyDown(eventType, eventData)
         return
     end
 
+    -- 贷款系统键盘输入（手机打开且贷款流程激活时）
+    if gs.phoneOpen and LoanApp.IsActive() then
+        -- 阻挡型广告（popup/fullscreen）正在显示时不接收输入，banner不阻挡
+        if not PhoneUI.IsAdBlocking() then
+            -- 数字键 0-9
+            if key >= KEY_0 and key <= KEY_9 then
+                LoanApp.OnDigitInput(tostring(key - KEY_0))
+                return
+            end
+            -- 小键盘数字
+            if key >= KEY_KP_0 and key <= KEY_KP_9 then
+                LoanApp.OnDigitInput(tostring(key - KEY_KP_0))
+                return
+            end
+            -- 退格
+            if key == KEY_BACKSPACE then
+                LoanApp.OnBackspace()
+                return
+            end
+            -- 回车确认
+            if key == KEY_RETURN or key == KEY_KP_ENTER then
+                LoanApp.OnConfirm()
+                -- 如果贷款流程已关闭（loan_done/failed后按Enter），恢复支付面板
+                if not LoanApp.IsActive() then
+                    PhoneUI.ShowPayPanel()
+                end
+                return
+            end
+            -- ESC 退出贷款流程
+            if key == KEY_ESCAPE then
+                LoanApp.Close()
+                PhoneUI.ShowPayPanel()
+                return
+            end
+        end
+        -- 贷款流程中不处理其他按键（除了Tab关手机）
+        if key ~= KEY_TAB then return end
+    end
+
     -- Tab 键打开/关闭手机
     if key == KEY_TAB then
         if gs.phoneOpen then
@@ -1574,10 +1673,10 @@ function HandleKeyDown(eventType, eventData)
             -- 打开时如果倒计时激活，重新显示低电量警告
             if lowBatteryActive then
                 PhoneUI.ShowLowBatteryWarning()
-            elseif EventSystem.ShouldShowAd(gs.battery) then
+            elseif AdSystem.ShouldTrigger(gs.battery) then
                 -- 打开时有概率弹广告（仅在无低电量警告时）
-                local ad = EventSystem.GetRandomAd()
-                PhoneUI.ShowAd(ad.title, ad.body)
+                local ad = AdSystem.TriggerAd(gs.battery)
+                PhoneUI.ShowAd(ad)
                 gs.stats.adWatchCount = gs.stats.adWatchCount + 1
             end
         end
@@ -2320,6 +2419,418 @@ function RenderSlotGame(vg, sw, sh)
 end
 
 -- ====================================================================
+-- 贷款流程 NanoVG 渲染
+-- ====================================================================
+function RenderLoanFlow(vg, sw, sh)
+    if not LoanApp.IsActive() then return end
+    local loanState = LoanApp.GetState()
+    if loanState == "idle" or loanState == "ad_before" or loanState == "ad_after_code" then return end
+
+    -- 半透明遮罩
+    nvgBeginPath(vg)
+    nvgRect(vg, 0, 0, sw, sh)
+    nvgFillColor(vg, nvgRGBA(0, 0, 0, 180))
+    nvgFill(vg)
+
+    -- 面板尺寸
+    local panelW = 320
+    local panelH = 280
+    local panelX = (sw - panelW) / 2
+    local panelY = (sh - panelH) / 2
+
+    -- 绘制面板背景
+    local function DrawPanel(title, h)
+        h = h or panelH
+        local py = (sh - h) / 2
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, panelX, py, panelW, h, 12)
+        nvgFillColor(vg, nvgRGBA(25, 30, 50, 245))
+        nvgFill(vg)
+        nvgStrokeColor(vg, nvgRGBA(80, 140, 255, 180))
+        nvgStrokeWidth(vg, 1.5)
+        nvgStroke(vg)
+        -- 标题
+        nvgFontFace(vg, "sans")
+        nvgFontSize(vg, 16)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(200, 220, 255, 255))
+        nvgText(vg, sw / 2, py + 14, title)
+        return py
+    end
+
+    -- 绘制输入框
+    local function DrawInputField(x, y, w, text, maxLen, placeholder)
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, x, y, w, 32, 6)
+        nvgFillColor(vg, nvgRGBA(15, 15, 30, 255))
+        nvgFill(vg)
+        nvgStrokeColor(vg, nvgRGBA(60, 100, 200, 180))
+        nvgStrokeWidth(vg, 1)
+        nvgStroke(vg)
+        -- 文字
+        nvgFontSize(vg, 14)
+        nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
+        if #text > 0 then
+            nvgFillColor(vg, nvgRGBA(255, 255, 255, 255))
+            -- 显示文字 + 光标
+            local displayText = text
+            if math.floor(gs.totalTime * 2) % 2 == 0 then
+                displayText = displayText .. "|"
+            end
+            nvgText(vg, x + 10, y + 16, displayText)
+        else
+            nvgFillColor(vg, nvgRGBA(100, 100, 140, 180))
+            nvgText(vg, x + 10, y + 16, placeholder or "")
+        end
+        -- 位数提示
+        nvgFontSize(vg, 10)
+        nvgTextAlign(vg, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
+        nvgFillColor(vg, nvgRGBA(100, 100, 140, 180))
+        nvgText(vg, x + w - 8, y + 16, #text .. "/" .. maxLen)
+    end
+
+    -- 错误信息
+    local function DrawError()
+        local err = LoanApp.GetErrorMsg()
+        if err and #err > 0 then
+            nvgFontSize(vg, 12)
+            nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+            nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+            nvgText(vg, sw / 2, panelY + panelH - 40, err)
+        end
+    end
+
+    -- ===== 各状态渲染 =====
+
+    if loanState == "input_phone" then
+        local py = DrawPanel("身份验证 - 输入手机号")
+        -- 说明文字
+        nvgFontSize(vg, 11)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(160, 170, 200, 220))
+        nvgText(vg, sw / 2, py + 40, "请输入您的注册手机号以验证身份")
+        -- 输入框
+        DrawInputField(panelX + 30, py + 70, panelW - 60, LoanApp.GetPhoneInput(), 11, "请输入手机号")
+        -- 提示
+        nvgFontSize(vg, 10)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(100, 120, 160, 180))
+        nvgText(vg, sw / 2, py + 110, "数字键输入 | Enter确认 | Esc退出")
+        -- 错误
+        local err = LoanApp.GetErrorMsg()
+        if err and #err > 0 then
+            nvgFontSize(vg, 12)
+            nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+            nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+            nvgText(vg, sw / 2, py + 135, err)
+        end
+
+    elseif loanState == "sms_sent" then
+        local py = DrawPanel("短信验证码")
+        -- 已发送提示
+        nvgFontSize(vg, 11)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(100, 220, 100, 220))
+        nvgText(vg, sw / 2, py + 38, "验证码已发送至 138****6752")
+        -- 验证码输入框
+        DrawInputField(panelX + 60, py + 65, panelW - 120, LoanApp.GetCodeInput(), 6, "6位验证码")
+        -- 重发按钮/倒计时
+        nvgFontSize(vg, 11)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        if LoanApp.CanResend() then
+            nvgFillColor(vg, nvgRGBA(80, 160, 255, 255))
+            nvgText(vg, sw / 2, py + 108, "[重新发送]")
+        else
+            nvgFillColor(vg, nvgRGBA(100, 100, 140, 180))
+            nvgText(vg, sw / 2, py + 108, "重新发送(" .. LoanApp.GetResendTimer() .. "s)")
+        end
+        -- 操作提示
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(100, 120, 160, 180))
+        nvgText(vg, sw / 2, py + 130, "数字键输入 | Enter确认 | Esc退出")
+        -- 错误
+        local err = LoanApp.GetErrorMsg()
+        if err and #err > 0 then
+            nvgFontSize(vg, 12)
+            nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+            nvgText(vg, sw / 2, py + 155, err)
+        end
+
+    elseif loanState == "face_game" then
+        -- 人脸识别音游 - 更大面板
+        local fPanelH = 320
+        local fPanelY = (sh - fPanelH) / 2
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, panelX - 10, fPanelY, panelW + 20, fPanelH, 12)
+        nvgFillColor(vg, nvgRGBA(15, 20, 40, 250))
+        nvgFill(vg)
+        nvgStrokeColor(vg, nvgRGBA(50, 200, 100, 180))
+        nvgStrokeWidth(vg, 1.5)
+        nvgStroke(vg)
+
+        -- 标题
+        nvgFontFace(vg, "sans")
+        nvgFontSize(vg, 14)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(100, 255, 150, 255))
+        nvgText(vg, sw / 2, fPanelY + 10, "人脸识别验证")
+
+        local facePhase = LoanApp.GetFacePhase()
+
+        if facePhase == "ready" then
+            -- 等待开始
+            nvgFontSize(vg, 12)
+            nvgFillColor(vg, nvgRGBA(200, 220, 255, 220))
+            nvgText(vg, sw / 2, fPanelY + 40, "请面对摄像头，按指示完成动作")
+            nvgFontSize(vg, 11)
+            nvgFillColor(vg, nvgRGBA(160, 180, 220, 200))
+            nvgText(vg, sw / 2, fPanelY + 65, "按键对应:  1=眨眼  2=张嘴  3=摇头  4=点头")
+            nvgFontSize(vg, 11)
+            nvgFillColor(vg, nvgRGBA(255, 220, 80, 240))
+            nvgText(vg, sw / 2, fPanelY + 95, "按 Enter 开始验证")
+            -- 评分说明
+            nvgFontSize(vg, 10)
+            nvgFillColor(vg, nvgRGBA(140, 160, 200, 180))
+            nvgText(vg, sw / 2, fPanelY + 125, "需要 " .. LoanApp.GetPassScore() .. " 分通过 (满分32)")
+
+        elseif facePhase == "playing" or facePhase == "paused_ad" then
+            -- 分数和连击
+            nvgFontSize(vg, 12)
+            nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+            nvgFillColor(vg, nvgRGBA(255, 255, 255, 220))
+            nvgText(vg, panelX, fPanelY + 32, "分数: " .. LoanApp.GetFaceScore())
+            nvgTextAlign(vg, NVG_ALIGN_RIGHT + NVG_ALIGN_TOP)
+            local combo = LoanApp.GetFaceCombo()
+            if combo > 1 then
+                nvgFillColor(vg, nvgRGBA(255, 200, 50, 255))
+                nvgText(vg, panelX + panelW + 20, fPanelY + 32, combo .. "x COMBO!")
+            end
+
+            -- 时间轴
+            local tlX = panelX + 10
+            local tlW = panelW
+            local tlY = fPanelY + 60
+            local tlH = 4
+            -- 背景线
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, tlX, tlY, tlW, tlH, 2)
+            nvgFillColor(vg, nvgRGBA(60, 60, 80, 200))
+            nvgFill(vg)
+            -- 进度指示
+            local progress = LoanApp.GetFaceTimer() / LoanApp.GetFaceDuration()
+            nvgBeginPath(vg)
+            nvgRoundedRect(vg, tlX, tlY, tlW * progress, tlH, 2)
+            nvgFillColor(vg, nvgRGBA(50, 200, 100, 200))
+            nvgFill(vg)
+            -- 当前位置指针
+            local cursorX = tlX + tlW * progress
+            nvgBeginPath(vg)
+            nvgCircle(vg, cursorX, tlY + 2, 5)
+            nvgFillColor(vg, nvgRGBA(255, 255, 255, 255))
+            nvgFill(vg)
+
+            -- 节拍标记
+            local beats = LoanApp.GetFaceBeats()
+            for _, beat in ipairs(beats) do
+                local beatX = tlX + tlW * (beat.timing / LoanApp.GetFaceDuration())
+                local beatY = tlY + 2
+                -- 圆圈
+                nvgBeginPath(vg)
+                nvgCircle(vg, beatX, beatY, 6)
+                if beat.judged then
+                    if beat.result == "Perfect" then
+                        nvgFillColor(vg, nvgRGBA(255, 215, 0, 255))
+                    elseif beat.result == "Great" then
+                        nvgFillColor(vg, nvgRGBA(100, 200, 255, 255))
+                    elseif beat.result == "Good" then
+                        nvgFillColor(vg, nvgRGBA(100, 255, 100, 200))
+                    else
+                        nvgFillColor(vg, nvgRGBA(255, 60, 60, 200))
+                    end
+                else
+                    nvgFillColor(vg, nvgRGBA(200, 200, 220, 150))
+                end
+                nvgFill(vg)
+                -- 动作图标（在节拍下方显示）
+                nvgFontSize(vg, 14)
+                nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+                nvgFillColor(vg, nvgRGBA(255, 255, 255, 200))
+                nvgText(vg, beatX, tlY + 12, beat.action.icon)
+                -- 按键提示
+                nvgFontSize(vg, 9)
+                nvgFillColor(vg, nvgRGBA(180, 180, 200, 160))
+                nvgText(vg, beatX, tlY + 28, beat.action.key)
+            end
+
+            -- 即将到来的动作提示（大字居中）
+            local nextBeat = nil
+            local timer = LoanApp.GetFaceTimer()
+            for _, beat in ipairs(beats) do
+                if not beat.judged and beat.timing > timer - 0.1 then
+                    nextBeat = beat
+                    break
+                end
+            end
+            if nextBeat then
+                local timeUntil = nextBeat.timing - timer
+                if timeUntil < 1.5 and timeUntil > -0.2 then
+                    local alpha = 255
+                    if timeUntil < 0.3 then alpha = math.floor(255 * (timeUntil / 0.3)) end
+                    nvgFontSize(vg, 36)
+                    nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+                    nvgFillColor(vg, nvgRGBA(255, 255, 255, alpha))
+                    nvgText(vg, sw / 2, fPanelY + 160, nextBeat.action.icon)
+                    nvgFontSize(vg, 14)
+                    nvgFillColor(vg, nvgRGBA(200, 220, 255, alpha))
+                    nvgText(vg, sw / 2, fPanelY + 190, "按 " .. nextBeat.action.key .. " (" .. nextBeat.action.name .. ")")
+                end
+            end
+
+            -- 判定文字动画
+            local judge = LoanApp.GetFaceLastJudge()
+            local judgeTimer = LoanApp.GetFaceLastJudgeTimer()
+            if judge and judgeTimer > 0 then
+                local jAlpha = math.floor(255 * math.min(1, judgeTimer / 0.5))
+                local jY = fPanelY + 230 - (1 - judgeTimer) * 15
+                nvgFontSize(vg, 18)
+                nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+                if judge == "Perfect" then
+                    nvgFillColor(vg, nvgRGBA(255, 215, 0, jAlpha))
+                elseif judge == "Great" then
+                    nvgFillColor(vg, nvgRGBA(100, 200, 255, jAlpha))
+                elseif judge == "Good" then
+                    nvgFillColor(vg, nvgRGBA(100, 255, 100, jAlpha))
+                else
+                    nvgFillColor(vg, nvgRGBA(255, 60, 60, jAlpha))
+                end
+                nvgText(vg, sw / 2, jY, judge)
+            end
+
+            -- 暂停提示（广告弹出时）
+            if facePhase == "paused_ad" then
+                nvgFontSize(vg, 14)
+                nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+                nvgFillColor(vg, nvgRGBA(255, 200, 50, 255))
+                nvgText(vg, sw / 2, fPanelY + 280, "⚠ 广告中... 关闭后继续")
+            end
+
+            -- 按键说明（底部）
+            nvgFontSize(vg, 9)
+            nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_BOTTOM)
+            nvgFillColor(vg, nvgRGBA(120, 140, 180, 160))
+            nvgText(vg, sw / 2, fPanelY + fPanelH - 8, "1=眨眼  2=张嘴  3=摇头  4=点头")
+        end
+
+    elseif loanState == "face_result" then
+        local py = DrawPanel("人脸验证通过", 200)
+        -- 成功图标
+        nvgFontSize(vg, 32)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(80, 255, 120, 255))
+        nvgText(vg, sw / 2, py + 40, "✓")
+        -- 贷款信息
+        nvgFontSize(vg, 12)
+        nvgFillColor(vg, nvgRGBA(200, 220, 255, 220))
+        nvgText(vg, sw / 2, py + 80, "贷款申请成功")
+        nvgFontSize(vg, 11)
+        nvgFillColor(vg, nvgRGBA(255, 200, 80, 220))
+        nvgText(vg, sw / 2, py + 100, "本月额度: ¥" .. LoanApp.GetLoanLimit() .. " | 月利率: " .. LoanApp.GetLoanRate())
+        -- 提示
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(120, 160, 200, 180))
+        nvgText(vg, sw / 2, py + 130, "按 Enter 继续")
+
+    elseif loanState == "loan_input" then
+        local py = DrawPanel("选择贷款金额", 220)
+        -- 额度信息
+        nvgFontSize(vg, 12)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(200, 220, 255, 220))
+        nvgText(vg, sw / 2, py + 40, "可用额度: ¥" .. LoanApp.GetLoanLimit())
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(255, 180, 80, 200))
+        nvgText(vg, sw / 2, py + 58, "月利率 " .. LoanApp.GetLoanRate() .. " (请谨慎借贷)")
+        -- 金额输入
+        DrawInputField(panelX + 60, py + 80, panelW - 120, LoanApp.GetLoanInput(), 3, "输入金额")
+        -- 操作提示
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(100, 120, 160, 180))
+        nvgText(vg, sw / 2, py + 125, "数字键输入 | Enter确认 | Esc退出")
+        -- 错误
+        local err = LoanApp.GetErrorMsg()
+        if err and #err > 0 then
+            nvgFontSize(vg, 12)
+            nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+            nvgText(vg, sw / 2, py + 150, err)
+        end
+
+    elseif loanState == "loan_done" then
+        local py = DrawPanel("贷款到账", 180)
+        nvgFontSize(vg, 28)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(80, 255, 120, 255))
+        nvgText(vg, sw / 2, py + 45, "¥" .. LoanApp.GetLoanInput())
+        nvgFontSize(vg, 12)
+        nvgFillColor(vg, nvgRGBA(200, 220, 255, 200))
+        nvgText(vg, sw / 2, py + 85, "已到账至余额")
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(255, 180, 80, 180))
+        nvgText(vg, sw / 2, py + 108, "请于月底前还款，逾期将上报征信")
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(100, 120, 160, 180))
+        nvgText(vg, sw / 2, py + 135, "按 Enter 关闭")
+
+    elseif loanState == "failed" then
+        local py = DrawPanel("验证失败", 220)
+        -- 失败图标
+        nvgFontSize(vg, 28)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+        nvgText(vg, sw / 2, py + 40, "✗")
+        -- 分数
+        nvgFontSize(vg, 12)
+        nvgFillColor(vg, nvgRGBA(200, 200, 220, 220))
+        nvgText(vg, sw / 2, py + 75, "识别分数: " .. LoanApp.GetFaceScore() .. "/" .. LoanApp.GetPassScore())
+        nvgFontSize(vg, 11)
+        nvgFillColor(vg, nvgRGBA(255, 180, 80, 200))
+        nvgText(vg, sw / 2, py + 100, "人脸识别未通过，请重试")
+        -- 操作
+        nvgFontSize(vg, 10)
+        nvgFillColor(vg, nvgRGBA(100, 160, 200, 180))
+        nvgText(vg, sw / 2, py + 135, "Enter = 重试 | Esc = 放弃")
+    end
+
+    -- ===== SMS 横幅（覆盖在顶部，任何状态都可能显示）=====
+    if LoanApp.IsSmsVisible() then
+        local smsY = LoanApp.GetSmsSlideY()
+        local smsW = 260
+        local smsH = 52
+        local smsX = (sw - smsW) / 2
+        -- 背景
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, smsX, smsY, smsW, smsH, 10)
+        nvgFillColor(vg, nvgRGBA(40, 45, 60, 240))
+        nvgFill(vg)
+        nvgStrokeColor(vg, nvgRGBA(80, 160, 255, 150))
+        nvgStrokeWidth(vg, 1)
+        nvgStroke(vg)
+        -- 短信图标 + 标题
+        nvgFontFace(vg, "sans")
+        nvgFontSize(vg, 10)
+        nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+        nvgFillColor(vg, nvgRGBA(140, 160, 200, 200))
+        nvgText(vg, smsX + 10, smsY + 6, "短信")
+        -- 内容
+        nvgFontSize(vg, 12)
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 255))
+        nvgText(vg, smsX + 10, smsY + 22, "【极速贷】验证码: " .. LoanApp.GetVerifyCode())
+        nvgFontSize(vg, 9)
+        nvgFillColor(vg, nvgRGBA(140, 160, 200, 160))
+        nvgText(vg, smsX + 10, smsY + 38, "5分钟内有效，请勿告知他人")
+    end
+end
+
+-- ====================================================================
 -- NanoVG 渲染
 -- ====================================================================
 function HandleRender(eventType, eventData)
@@ -2383,6 +2894,11 @@ function HandleRender(eventType, eventData)
         -- 老虎机博弈面板
         if slotGameOpen then
             RenderSlotGame(nvg, screenW, screenH)
+        end
+
+        -- 贷款流程面板
+        if gs.phoneOpen and LoanApp.IsActive() then
+            RenderLoanFlow(nvg, screenW, screenH)
         end
 
         -- 低电量倒计时 HUD（屏幕顶部居中，始终显示）

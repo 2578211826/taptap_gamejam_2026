@@ -439,6 +439,41 @@ function PhoneUI.CreatePayApp()
                 flexGrow = 1,
                 gap = 6,
             },
+            -- 贷款入口（醒目的大按钮）
+            UI.Panel {
+                padding = 8,
+                backgroundColor = { 180, 50, 20, 240 },
+                borderRadius = 10,
+                borderWidth = 1,
+                borderColor = { 255, 100, 50, 255 },
+                alignItems = "center",
+                gap = 4,
+                children = {
+                    UI.Label {
+                        text = "💰 极速贷款",
+                        fontSize = 14,
+                        fontColor = { 255, 220, 100, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "3秒到账 · 最高200元",
+                        fontSize = 9,
+                        fontColor = { 255, 200, 180, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Button {
+                        text = "立即申请",
+                        fontSize = 11,
+                        width = "80%",
+                        height = 28,
+                        backgroundColor = { 255, 80, 30, 255 },
+                        borderRadius = 14,
+                        onClick = function()
+                            if onEventCallback then onEventCallback("loan_start") end
+                        end,
+                    },
+                },
+            },
         }
     }
     return payPanel
@@ -616,48 +651,173 @@ function PhoneUI.CreateAdOverlay()
         alignItems = "center",
         backgroundColor = { 0, 0, 0, 200 },
         children = {
+            -- Popup 弹窗（默认显示）
             UI.Panel {
-                width = 260,
-                padding = 16,
+                id = "adPopupCard",
+                width = 250,
+                padding = 14,
                 backgroundColor = { 255, 255, 255, 255 },
                 borderRadius = 12,
                 alignItems = "center",
-                gap = 10,
+                gap = 8,
                 children = {
                     UI.Label {
                         id = "adTitle",
-                        text = "恭喜！您获得新人礼包",
+                        text = "限时优惠！",
                         fontSize = 14,
                         fontColor = { 200, 50, 50, 255 },
                         textAlign = "center",
                     },
                     UI.Label {
                         id = "adBody",
-                        text = "下载「电量守护」App\n首月会员仅¥29.99",
+                        text = "立即下载享受优惠",
                         fontSize = 11,
                         fontColor = { 80, 80, 80, 255 },
                         textAlign = "center",
                         whiteSpace = "normal",
                     },
+                    -- 大且鲜艳的"接受"按钮（误导性）
                     UI.Button {
-                        text = "立即下载",
-                        variant = "danger",
-                        fontSize = 12,
-                        width = "80%",
+                        id = "adAcceptBtn",
+                        text = "立即前往",
+                        fontSize = 13,
+                        width = "85%",
+                        height = 36,
+                        backgroundColor = { 255, 60, 30, 255 },
+                        borderRadius = 18,
+                        fontColor = { 255, 255, 255, 255 },
                         onClick = function()
-                            -- 误点广告
                             if onEventCallback then onEventCallback("ad_misclick") end
                         end,
                     },
-                    -- 极小关闭按钮
+                    -- 小且灰的"拒绝"按钮
+                    UI.Button {
+                        id = "adRejectBtn",
+                        text = "残忍拒绝",
+                        fontSize = 9,
+                        width = "50%",
+                        height = 22,
+                        backgroundColor = { 200, 200, 200, 80 },
+                        fontColor = { 140, 140, 140, 255 },
+                        borderRadius = 4,
+                        onClick = function()
+                            PhoneUI.HideAd()
+                            if onEventCallback then onEventCallback("ad_closed") end
+                        end,
+                    },
+                    -- 延迟出现的极小x关闭（position absolute）
                     UI.Button {
                         id = "adCloseBtn",
-                        text = "x",
+                        text = "×",
+                        visible = false,
                         position = "absolute",
-                        top = 4, right = 4,
+                        top = 2, right = 2,
+                        width = 16, height = 16,
+                        fontSize = 9,
+                        backgroundColor = { 200, 200, 200, 60 },
+                        fontColor = { 160, 160, 160, 255 },
+                        borderRadius = 8,
+                        onClick = function()
+                            PhoneUI.HideAd()
+                            if onEventCallback then onEventCallback("ad_closed") end
+                        end,
+                    },
+                },
+            },
+            -- Fullscreen 全屏广告
+            UI.Panel {
+                id = "adFullscreen",
+                visible = false,
+                position = "absolute",
+                top = 0, left = 0, right = 0, bottom = 0,
+                justifyContent = "center",
+                alignItems = "center",
+                backgroundColor = { 20, 20, 40, 255 },
+                children = {
+                    UI.Label {
+                        id = "adFullTitle",
+                        text = "广告",
+                        fontSize = 18,
+                        fontColor = { 255, 220, 100, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "adFullBody",
+                        text = "精彩内容加载中...",
+                        fontSize = 12,
+                        fontColor = { 200, 200, 220, 255 },
+                        textAlign = "center",
+                        whiteSpace = "normal",
+                        marginTop = 10,
+                    },
+                    -- 大按钮（误导）
+                    UI.Button {
+                        id = "adFullAccept",
+                        text = "查看详情",
+                        fontSize = 13,
+                        width = "70%",
+                        height = 36,
+                        marginTop = 20,
+                        backgroundColor = { 255, 80, 30, 255 },
+                        borderRadius = 18,
+                        fontColor = { 255, 255, 255, 255 },
+                        onClick = function()
+                            if onEventCallback then onEventCallback("ad_misclick") end
+                        end,
+                    },
+                    -- 跳过按钮（右上角，延迟出现）
+                    UI.Button {
+                        id = "adSkipBtn",
+                        text = "跳过 3s",
+                        visible = false,
+                        position = "absolute",
+                        top = 8, right = 8,
+                        width = 56, height = 22,
+                        fontSize = 9,
+                        backgroundColor = { 80, 80, 80, 180 },
+                        fontColor = { 200, 200, 200, 255 },
+                        borderRadius = 11,
+                        onClick = function()
+                            PhoneUI.HideAd()
+                            if onEventCallback then onEventCallback("ad_closed") end
+                        end,
+                    },
+                },
+            },
+            -- Banner 横幅广告（顶部，状态栏下方）
+            UI.Panel {
+                id = "adBanner",
+                visible = false,
+                position = "absolute",
+                top = 28, left = 8, right = 8,
+                height = 36,
+                backgroundColor = { 255, 245, 230, 250 },
+                borderRadius = 6,
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-between",
+                paddingHorizontal = 8,
+                pointerEvents = "box-only",
+                children = {
+                    UI.Label {
+                        id = "adBannerIcon",
+                        text = "🎮",
+                        fontSize = 12,
+                        width = 18,
+                    },
+                    UI.Label {
+                        id = "adBannerText",
+                        text = "广告文案",
+                        fontSize = 9,
+                        fontColor = { 80, 60, 30, 255 },
+                        flexGrow = 1,
+                        flexShrink = 1,
+                    },
+                    UI.Button {
+                        text = "×",
                         width = 18, height = 18,
                         fontSize = 9,
-                        backgroundColor = { 200, 200, 200, 100 },
+                        backgroundColor = { 180, 170, 150, 120 },
                         borderRadius = 9,
                         onClick = function()
                             PhoneUI.HideAd()
@@ -801,6 +961,16 @@ function PhoneUI.CloseApp()
     PhoneUI.ShowHome()
 end
 
+--- 隐藏支付面板（贷款流程激活时调用，防止底层按钮干扰）
+function PhoneUI.HidePayPanel()
+    if payPanel then payPanel:SetVisible(false) end
+end
+
+--- 显示支付面板（贷款流程结束时恢复）
+function PhoneUI.ShowPayPanel()
+    if payPanel then payPanel:SetVisible(true) end
+end
+
 function PhoneUI.ShowHome()
     if homePanel then homePanel:SetVisible(true) end
     if mapPanel then mapPanel:SetVisible(false) end
@@ -809,20 +979,134 @@ function PhoneUI.ShowHome()
     currentApp = nil
 end
 
-function PhoneUI.ShowAd(title, body)
-    if adOverlay then
-        local titleLabel = adOverlay:FindById("adTitle")
-        local bodyLabel = adOverlay:FindById("adBody")
-        if titleLabel then titleLabel:SetText(title or "限时优惠！") end
-        if bodyLabel then bodyLabel:SetText(body or "立即下载享受优惠") end
-        adOverlay:SetVisible(true)
+--- 显示广告（支持多种类型）
+--- @param adData table {type="popup"|"fullscreen"|"banner", content={title,body}, acceptText, rejectText, bannerText}
+function PhoneUI.ShowAd(adData)
+    if not adOverlay then return end
+
+    -- 兼容旧接口：如果传入字符串参数
+    if type(adData) == "string" then
+        adData = { type = "popup", content = { title = adData, body = "" }, acceptText = "立即前往", rejectText = "残忍拒绝" }
     end
+    if not adData then
+        adData = { type = "popup", content = { title = "限时优惠！", body = "立即下载享受优惠" }, acceptText = "立即前往", rejectText = "残忍拒绝" }
+    end
+
+    local adType = adData.type or "popup"
+
+    -- 隐藏所有子类型
+    local popupCard = adOverlay:FindById("adPopupCard")
+    local fullscreen = adOverlay:FindById("adFullscreen")
+    local banner = adOverlay:FindById("adBanner")
+    if popupCard then popupCard:SetVisible(false) end
+    if fullscreen then fullscreen:SetVisible(false) end
+    if banner then banner:SetVisible(false) end
+
+    -- 重置关闭按钮/跳过按钮
+    local closeBtn = adOverlay:FindById("adCloseBtn")
+    local skipBtn = adOverlay:FindById("adSkipBtn")
+    if closeBtn then closeBtn:SetVisible(false) end
+    if skipBtn then skipBtn:SetVisible(false) end
+
+    -- 重置 pointerEvents（popup/fullscreen阻挡，banner穿透）
+    adOverlay:SetProp("pointerEvents", "auto")
+
+    if adType == "popup" then
+        -- 弹窗广告
+        if popupCard then popupCard:SetVisible(true) end
+        local titleL = adOverlay:FindById("adTitle")
+        local bodyL = adOverlay:FindById("adBody")
+        local acceptBtn = adOverlay:FindById("adAcceptBtn")
+        local rejectBtn = adOverlay:FindById("adRejectBtn")
+        if titleL then titleL:SetText(adData.content and adData.content.title or "限时优惠！") end
+        if bodyL then bodyL:SetText(adData.content and adData.content.body or "立即下载享受优惠") end
+        if acceptBtn then acceptBtn:SetText(adData.acceptText or "立即前往") end
+        if rejectBtn then rejectBtn:SetText(adData.rejectText or "残忍拒绝") end
+        -- 背景半透明
+        adOverlay:SetBackgroundColor({ 0, 0, 0, 200 })
+
+    elseif adType == "fullscreen" then
+        -- 全屏广告
+        if fullscreen then fullscreen:SetVisible(true) end
+        local titleL = adOverlay:FindById("adFullTitle")
+        local bodyL = adOverlay:FindById("adFullBody")
+        local acceptBtn = adOverlay:FindById("adFullAccept")
+        if titleL then titleL:SetText(adData.content and adData.content.title or "广告") end
+        if bodyL then bodyL:SetText(adData.content and adData.content.body or "") end
+        if acceptBtn then acceptBtn:SetText(adData.acceptText or "查看详情") end
+        -- 全屏不需要背景（自己覆盖整个屏幕）
+        adOverlay:SetBackgroundColor({ 0, 0, 0, 0 })
+
+    elseif adType == "banner" then
+        -- 横幅广告
+        if banner then banner:SetVisible(true) end
+        local bannerText = adOverlay:FindById("adBannerText")
+        if bannerText then bannerText:SetText(adData.bannerText or "广告") end
+        -- 横幅不需要遮罩背景，且overlay本身不拦截点击（穿透到下层）
+        adOverlay:SetBackgroundColor({ 0, 0, 0, 0 })
+        adOverlay:SetProp("pointerEvents", "none")
+    end
+
+    -- 记录当前广告类型（用于延迟显示逻辑）
+    PhoneUI._currentAdType = adType
+    PhoneUI._adTimer = 0
+
+    adOverlay:SetVisible(true)
 end
 
 function PhoneUI.HideAd()
     if adOverlay then
         adOverlay:SetVisible(false)
     end
+    PhoneUI._currentAdType = nil
+    PhoneUI._adTimer = 0
+end
+
+--- 更新广告计时器（用于延迟显示关闭/跳过按钮）
+function PhoneUI.UpdateAd(dt)
+    if not adOverlay or not adOverlay:IsVisible() then return end
+    if not PhoneUI._currentAdType then return end
+
+    PhoneUI._adTimer = (PhoneUI._adTimer or 0) + dt
+
+    if PhoneUI._currentAdType == "popup" then
+        -- 1.5秒后显示x关闭按钮
+        if PhoneUI._adTimer >= 1.5 then
+            local closeBtn = adOverlay:FindById("adCloseBtn")
+            if closeBtn and not closeBtn:IsVisible() then
+                closeBtn:SetVisible(true)
+            end
+        end
+    elseif PhoneUI._currentAdType == "fullscreen" then
+        -- 3秒后显示跳过按钮
+        local skipBtn = adOverlay:FindById("adSkipBtn")
+        if skipBtn then
+            if PhoneUI._adTimer >= 3.0 then
+                if not skipBtn:IsVisible() then
+                    skipBtn:SetVisible(true)
+                    skipBtn:SetText("跳过")
+                end
+            else
+                local remaining = math.ceil(3.0 - PhoneUI._adTimer)
+                skipBtn:SetVisible(true)
+                skipBtn:SetText(remaining .. "s后跳过")
+                -- 在倒计时期间禁用点击（通过设置灰色提示即可，按钮onClick里做判定）
+            end
+        end
+    end
+    -- banner不需要计时逻辑（有x按钮即可关闭）
+end
+
+--- 广告是否可见
+function PhoneUI.IsAdVisible()
+    return adOverlay ~= nil and adOverlay:IsVisible()
+end
+
+--- 广告是否阻挡操作（popup/fullscreen阻挡，banner不阻挡）
+function PhoneUI.IsAdBlocking()
+    if not adOverlay or not adOverlay:IsVisible() then return false end
+    local t = PhoneUI._currentAdType
+    return t == "popup" or t == "fullscreen"
 end
 
 function PhoneUI.UpdateBattery(percent)

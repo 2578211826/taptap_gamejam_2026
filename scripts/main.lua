@@ -17,11 +17,13 @@ local ShopScene = require("ShopScene")
 local ItemData = require("ItemData")
 local LoanApp = require("LoanApp")
 local AdSystem = require("AdSystem")
+local DiagLog = require("DiagLog")
 
 -- ====================================================================
 -- 全局状态
 -- ====================================================================
 local nvg = nil
+local nvgOverlay = nil  -- 高层 NanoVG context，渲染在 UI 系统之上（贷款/DiagLog/低电量HUD）
 local screenW, screenH = 0, 0
 local gs = nil  -- GameState
 local uiRoot = nil
@@ -52,8 +54,7 @@ local mousePressed = false       -- 当前按下状态
 local hoveredBtn = nil           -- 当前hover的按钮id
 local pressedBtn = nil           -- 当前按下的按钮id
 
--- 贷款系统状态
-local loanAdCallback = nil       -- 广告关闭后的回调
+-- 贷款系统状态（广告已改为LoanApp内置NanoVG渲染，不再依赖PhoneUI广告系统）
 
 -- NPC 对话状态
 local npcDialogueOpen = false
@@ -106,6 +107,13 @@ function Start()
     end
     nvgCreateFont(nvg, "sans", "Fonts/MiSans-Regular.ttf")
 
+    -- 创建 overlay NanoVG context（渲染在 UI 系统之上，用于贷款流程/DiagLog/低电量HUD）
+    nvgOverlay = nvgCreate(1)
+    if nvgOverlay then
+        nvgCreateFont(nvgOverlay, "sans", "Fonts/MiSans-Regular.ttf")
+        nvgSetRenderOrder(nvgOverlay, 999995)  -- 高于 UI 系统的 999990
+    end
+
     -- 初始化 UI
     UI.Init({
         fonts = {
@@ -133,19 +141,24 @@ function Start()
 
     -- 初始化贷款系统
     LoanApp.Init({
-        onAdTrigger = function(callback)
-            -- 触发广告，广告关闭后调用callback恢复流程
-            loanAdCallback = callback
-            local ad = AdSystem.TriggerAd(gs.battery)
-            PhoneUI.ShowAd(ad)
-            gs.battery = gs.battery - Config.Battery.DrainAd * 0.5
-            gs.stats.adWatchCount = gs.stats.adWatchCount + 1
-        end,
         onLoanComplete = function(amount)
             -- 贷款到账
             gs.money = gs.money + amount
             PhoneUI.UpdateBalance(gs.money)
             print("[LoanApp] 贷款到账: ¥" .. amount)
+        end,
+        onShowAd = function()
+            -- 贷款流程需要显示广告 → 在手机内弹出
+            PhoneUI.ShowAd({
+                type = "popup",
+                content = { title = "限时特惠！充电宝免押金", body = "新用户专享：首次租借0元起\n全城5000+网点，随借随还" },
+                acceptText = "立即领取",
+                rejectText = "残忍拒绝",
+            })
+        end,
+        onHideAd = function()
+            -- 广告结束 → 隐藏 PhoneUI 广告层
+            PhoneUI.HideAd()
         end,
     })
 
@@ -154,6 +167,9 @@ function Start()
 
     -- 订阅事件
     SubscribeToEvent(nvg, "NanoVGRender", "HandleRender")
+    if nvgOverlay then
+        SubscribeToEvent(nvgOverlay, "NanoVGRender", "HandleOverlayRender")
+    end
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("KeyDown", "HandleKeyDown")
     SubscribeToEvent("MouseMove", "HandleMouseMove")
@@ -162,6 +178,10 @@ function Start()
 
     -- 显示开始菜单
     ShowMenu()
+
+    -- 初始化诊断日志
+    DiagLog.Init()
+    DiagLog.Log("系统", "游戏启动: " .. Config.Title)
 
     print("=== 游戏启动: " .. Config.Title .. " ===")
 end
@@ -893,15 +913,26 @@ end
 -- ====================================================================
 function HandlePhoneEvent(event)
     if event == "phone_close" then
+        DiagLog.LogWithEnv("事件", "手机关闭", {battery=gs.battery, phase=gs.phase, loanState=LoanApp.GetState(), phoneOpen=gs.phoneOpen})
+        -- 贷款流程不随手机关闭而清理（重新打开手机时继续）
+        if LoanApp.IsActive() then
+            DiagLog.Log("贷款", "[保留] 手机关闭但贷款流程保持, state=" .. LoanApp.GetState())
+        end
         -- 动画结束后会自动切回 PLAYING（见 HandleUpdate 中的检查）
         -- 这里不立即改状态，让滑出动画播放完
 
     elseif event == "loan_start" then
-        -- 启动贷款流程（如果已激活则忽略重复点击）
-        if LoanApp.IsActive() then return end
+        DiagLog.LogWithEnv("贷款", "收到loan_start事件（按钮被点击）", {battery=gs.battery, phase=gs.phase, loanState=LoanApp.GetState(), phoneOpen=gs.phoneOpen})
+        -- 如果之前的贷款流程还在（理论上不会，但防御性重置）
+        if LoanApp.IsActive() then
+            DiagLog.Log("警告", "loan_start时发现旧贷款流程未关闭, 强制重置, 旧状态=" .. LoanApp.GetState())
+            LoanApp.Close()
+        end
         LoanApp.Start()
+        DiagLog.Log("贷款", "LoanApp.Start()执行完毕, 新状态=" .. LoanApp.GetState() .. ", IsActive=" .. tostring(LoanApp.IsActive()))
         -- 隐藏支付面板，防止底层按钮再次被点击
         PhoneUI.HidePayPanel()
+        DiagLog.Log("贷款", "已隐藏支付面板")
 
     elseif event == "app_open" then
         gs.battery = gs.battery - Config.Battery.CostOpenApp
@@ -928,15 +959,19 @@ function HandlePhoneEvent(event)
     elseif event == "ad_misclick" then
         gs.stats.adMisclickCount = gs.stats.adMisclickCount + 1
         gs.battery = gs.battery - Config.Battery.DrainAd
+        -- 误点广告 → 推进贷款流程（广告算"看完了"）+ 跳转假应用
+        if LoanApp.IsAdShowing() then
+            LoanApp.DismissAd()
+            DiagLog.Log("贷款", "ad_misclick → 广告被点击，推进流程, 新状态=" .. LoanApp.GetState())
+        end
         -- 跳转到假应用市场页面（玩家必须手动关闭）
         PhoneUI.ShowFakeApp("电量守护", gs.battery)
 
     elseif event == "ad_closed" then
-        -- 广告关闭 → 如果有贷款回调，恢复贷款流程
-        if loanAdCallback then
-            local cb = loanAdCallback
-            loanAdCallback = nil
-            cb()
+        -- 广告关闭 → 如果贷款处于广告状态，推进流程
+        if LoanApp.IsAdShowing() then
+            LoanApp.DismissAd()
+            DiagLog.Log("贷款", "ad_closed → DismissAd, 新状态=" .. LoanApp.GetState())
         end
     end
 
@@ -1618,8 +1653,19 @@ function HandleKeyDown(eventType, eventData)
 
     -- 贷款系统键盘输入（手机打开且贷款流程激活时）
     if gs.phoneOpen and LoanApp.IsActive() then
-        -- 阻挡型广告（popup/fullscreen）正在显示时不接收输入，banner不阻挡
-        if not PhoneUI.IsAdBlocking() then
+        -- 广告正在显示时：按任意键关闭（如果可关闭）
+        if LoanApp.IsAdShowing() then
+            if LoanApp.IsAdDismissable() then
+                DiagLog.Log("输入", "按键关闭贷款内置广告, 当前状态=" .. LoanApp.GetState())
+                LoanApp.DismissAd()
+                DiagLog.Log("贷款", "广告关闭后新状态=" .. LoanApp.GetState())
+            else
+                DiagLog.Log("输入", "按键尝试关闭广告但尚不可关闭, adTimer=" .. string.format("%.1f", LoanApp.GetAdTimer()))
+            end
+            -- 广告期间拦截所有按键（除Tab）
+            if key ~= KEY_TAB then return end
+        else
+            -- 正常贷款输入处理
             -- 数字键 0-9
             if key >= KEY_0 and key <= KEY_9 then
                 LoanApp.OnDigitInput(tostring(key - KEY_0))
@@ -1738,6 +1784,17 @@ end
 
 function HandleMouseDown(eventType, eventData)
     local button = eventData["Button"]:GetInt()
+
+    -- 右键双击电量条区域 → 触发诊断日志面板
+    if button == MOUSEB_RIGHT then
+        -- 电量条区域：左上角约 (0, 0) ~ (120, 30)
+        local batteryRect = { x = 0, y = 0, w = 140, h = 40 }
+        if DiagLog.OnRightClick(mouseLogX, mouseLogY, batteryRect) then
+            return
+        end
+        return
+    end
+
     if button ~= MOUSEB_LEFT then return end
     mousePressed = true
 
@@ -2421,10 +2478,18 @@ end
 -- ====================================================================
 -- 贷款流程 NanoVG 渲染
 -- ====================================================================
+local _lastLoggedLoanState = nil  -- 避免每帧重复日志
+
 function RenderLoanFlow(vg, sw, sh)
     if not LoanApp.IsActive() then return end
     local loanState = LoanApp.GetState()
-    if loanState == "idle" or loanState == "ad_before" or loanState == "ad_after_code" then return end
+    if loanState == "idle" then return end
+
+    -- 状态变化时记录一次日志
+    if loanState ~= _lastLoggedLoanState then
+        DiagLog.Log("渲染", "贷款界面渲染中, 状态=" .. loanState .. ", IsAdShowing=" .. tostring(LoanApp.IsAdShowing()) .. ", adTimer=" .. string.format("%.1f", LoanApp.GetAdTimer()))
+        _lastLoggedLoanState = loanState
+    end
 
     -- 半透明遮罩
     nvgBeginPath(vg)
@@ -2501,6 +2566,11 @@ function RenderLoanFlow(vg, sw, sh)
     end
 
     -- ===== 各状态渲染 =====
+
+    -- 广告状态：由 PhoneUI.ShowAd() 在手机内显示，这里不用 NanoVG 渲染
+    if loanState == "ad_before" or loanState == "ad_after_code" or LoanApp.IsAdShowing() then
+        return  -- 广告由 PhoneUI 系统渲染（在手机屏幕内），不绘制 overlay
+    end
 
     if loanState == "input_phone" then
         local py = DrawPanel("身份验证 - 输入手机号")
@@ -2896,17 +2966,44 @@ function HandleRender(eventType, eventData)
             RenderSlotGame(nvg, screenW, screenH)
         end
 
-        -- 贷款流程面板
+    end
+
+    nvgEndFrame(nvg)
+end
+
+-- ====================================================================
+-- Overlay 渲染（在 UI 系统之上，renderOrder=999995）
+-- 贷款流程/低电量HUD/诊断日志在这里绘制，不会被手机UI遮挡
+-- ====================================================================
+function HandleOverlayRender(eventType, eventData)
+    if not nvgOverlay then return end
+
+    local dpr = graphics:GetDPR()
+    local physW = graphics:GetWidth()
+    local physH = graphics:GetHeight()
+
+    nvgBeginFrame(nvgOverlay, physW, physH, dpr)
+
+    if gs.phase ~= Config.State.MENU then
+        -- 贷款流程面板（覆盖在手机UI之上）
         if gs.phoneOpen and LoanApp.IsActive() then
-            RenderLoanFlow(nvg, screenW, screenH)
+            RenderLoanFlow(nvgOverlay, screenW, screenH)
+        end
+        -- 首帧检测：如果贷款Active但phoneOpen为false，说明条件不满足
+        if LoanApp.IsActive() and not gs.phoneOpen and _lastLoggedLoanState ~= "blocked_no_phone" then
+            DiagLog.Log("错误", "贷款IsActive=true但phoneOpen=false, 渲染被跳过!")
+            _lastLoggedLoanState = "blocked_no_phone"
         end
 
         -- 低电量倒计时 HUD（屏幕顶部居中，始终显示）
         if lowBatteryActive then
-            RenderLowBatteryHUD(nvg, screenW)
+            RenderLowBatteryHUD(nvgOverlay, screenW)
         end
     end
 
-    nvgEndFrame(nvg)
+    -- 诊断日志浮层（最顶层，始终可渲染）
+    DiagLog.Render(nvgOverlay, screenW, screenH)
+
+    nvgEndFrame(nvgOverlay)
 end
 

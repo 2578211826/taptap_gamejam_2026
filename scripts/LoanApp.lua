@@ -9,6 +9,8 @@
 --   5. 通过 → 选择贷款金额 → 到账
 -- ====================================================================
 
+local DiagLog = require("DiagLog")
+
 local LoanApp = {}
 
 -- ====================================================================
@@ -89,19 +91,27 @@ local faceAdPending = false  -- 广告正在展示中（暂停游戏）
 local loanInput = ""
 local loanSuccess = false
 
+-- 广告模拟定时器（自包含，不依赖外部UI系统）
+local adTimer = 0            -- 广告剩余时间（秒）
+local adDismissable = false  -- 是否可关闭
+local AD_SHOW_DURATION = 2.5 -- 广告强制观看时间（秒）
+local AD_DISMISS_HINT = 1.5  -- 经过多久后显示关闭提示
+
 -- 回调
-local onAdTrigger = nil      -- function(callback) 触发广告，广告关闭后调用callback
 local onLoanComplete = nil   -- function(amount) 贷款到账
+local onShowAd = nil         -- function() 广告需要显示时调用（通知 PhoneUI 显示广告）
+local onHideAd = nil         -- function() 广告结束时调用
 
 -- ====================================================================
 -- 初始化
 -- ====================================================================
 
---- @param callbacks table {onAdTrigger, onLoanComplete}
+--- @param callbacks table {onLoanComplete, onShowAd, onHideAd}
 function LoanApp.Init(callbacks)
     if callbacks then
-        onAdTrigger = callbacks.onAdTrigger
         onLoanComplete = callbacks.onLoanComplete
+        onShowAd = callbacks.onShowAd
+        onHideAd = callbacks.onHideAd
     end
 end
 
@@ -121,6 +131,7 @@ end
 
 --- 启动贷款流程
 function LoanApp.Start()
+    DiagLog.Log("贷款", "[触发] LoanApp.Start() 被调用")
     state = "ad_before"
     phoneInput = ""
     codeInput = ""
@@ -136,14 +147,12 @@ function LoanApp.Start()
     faceMaxCombo = 0
     faceAdShown = 0
     faceAdPending = false
-    -- 触发第一个广告
-    if onAdTrigger then
-        onAdTrigger(function()
-            state = "input_phone"
-        end)
-    else
-        state = "input_phone"
-    end
+    -- 启动内置广告定时器
+    adTimer = AD_SHOW_DURATION
+    adDismissable = false
+    -- 通知外部显示广告
+    if onShowAd then onShowAd() end
+    DiagLog.Log("贷款", "[完成] Start → state=ad_before, adTimer=" .. AD_SHOW_DURATION)
 end
 
 function LoanApp.GetState()
@@ -155,9 +164,52 @@ function LoanApp.IsActive()
 end
 
 function LoanApp.Close()
+    DiagLog.Log("贷款", "[触发] LoanApp.Close() 被调用, 原state=" .. state)
+    local wasAd = (state == "ad_before" or state == "ad_after_code" or faceAdPending)
     state = "idle"
     smsVisible = false
     faceAdPending = false
+    adTimer = 0
+    adDismissable = false
+    -- 如果正在显示广告，通知隐藏
+    if wasAd and onHideAd then onHideAd() end
+    DiagLog.Log("贷款", "[完成] Close → state=idle")
+end
+
+--- 关闭当前广告（PhoneUI ad_closed 回调触发）
+function LoanApp.DismissAd()
+    DiagLog.Log("贷款", "[触发] DismissAd() state=" .. state .. " adDismissable=" .. tostring(adDismissable) .. " faceAdPending=" .. tostring(faceAdPending))
+    -- 注意：adDismissable 不再用来拦截（PhoneUI 的关闭按钮已经做了延迟显示）
+    adTimer = 0
+    adDismissable = false
+    if onHideAd then onHideAd() end
+    if state == "ad_before" then
+        state = "input_phone"
+        DiagLog.Log("贷款", "[完成] DismissAd → state=input_phone")
+    elseif state == "ad_after_code" then
+        state = "face_game"
+        LoanApp.InitFaceGame()
+        DiagLog.Log("贷款", "[完成] DismissAd → state=face_game, 初始化音游")
+    elseif faceAdPending then
+        LoanApp.ResumeFaceGame()
+        DiagLog.Log("贷款", "[完成] DismissAd → 恢复人脸音游")
+    end
+    return true
+end
+
+--- 广告是否正在显示（用于渲染判断）
+function LoanApp.IsAdShowing()
+    return (state == "ad_before" or state == "ad_after_code" or faceAdPending) and adTimer > 0
+end
+
+--- 广告是否可关闭
+function LoanApp.IsAdDismissable()
+    return adDismissable
+end
+
+--- 获取广告剩余时间
+function LoanApp.GetAdTimer()
+    return adTimer
 end
 
 -- ====================================================================
@@ -196,6 +248,7 @@ end
 
 --- 确认（Enter）
 function LoanApp.OnConfirm()
+    DiagLog.Log("贷款", "[触发] OnConfirm() state=" .. state .. " facePhase=" .. tostring(facePhase))
     if state == "input_phone" then
         LoanApp.SubmitPhone()
     elseif state == "sms_sent" then
@@ -204,17 +257,22 @@ function LoanApp.OnConfirm()
         LoanApp.SubmitLoan()
     elseif state == "face_game" and facePhase == "ready" then
         LoanApp.BeginFaceGame()
+        DiagLog.Log("贷款", "[完成] OnConfirm → 开始人脸音游")
     elseif state == "face_result" then
         -- 验证通过 → 输入贷款金额
         state = "loan_input"
         loanInput = ""
         errorMsg = ""
+        DiagLog.Log("贷款", "[完成] OnConfirm → state=loan_input")
     elseif state == "failed" then
         -- 失败后按Enter重试
         LoanApp.RetryFace()
+        DiagLog.Log("贷款", "[完成] OnConfirm → 重试人脸识别")
     elseif state == "loan_done" then
         -- 完成后关闭
         LoanApp.Close()
+    else
+        DiagLog.Log("贷款", "[忽略] OnConfirm 无匹配分支 state=" .. state)
     end
 end
 
@@ -223,9 +281,11 @@ end
 -- ====================================================================
 
 function LoanApp.SubmitPhone()
+    DiagLog.Log("贷款", "[触发] SubmitPhone() 输入=" .. phoneInput .. " 长度=" .. #phoneInput)
     if #phoneInput ~= 11 then
         errorMsg = "请输入11位手机号"
         errorTimer = 2.5
+        DiagLog.Log("贷款", "[拦截] 手机号位数不足")
         return
     end
     -- 判断是否正确（匹配完整号码）
@@ -239,9 +299,11 @@ function LoanApp.SubmitPhone()
         smsVisible = true
         smsTimer = 5.0
         smsSlideY = -80
+        DiagLog.Log("贷款", "[完成] SubmitPhone → state=sms_sent, SMS横幅已触发")
     else
         errorMsg = "手机号不存在"
         errorTimer = 2.5
+        DiagLog.Log("贷款", "[失败] 手机号不匹配")
     end
 end
 
@@ -260,28 +322,26 @@ end
 -- ====================================================================
 
 function LoanApp.SubmitCode()
+    DiagLog.Log("贷款", "[触发] SubmitCode() 输入=" .. codeInput .. " 长度=" .. #codeInput)
     if #codeInput ~= 6 then
         errorMsg = "请输入6位验证码"
         errorTimer = 2.5
+        DiagLog.Log("贷款", "[拦截] 验证码位数不足")
         return
     end
     if codeInput == VERIFY_CODE then
-        -- 正确 → 弹广告 → 人脸识别
+        -- 正确 → 弹内置广告 → 人脸识别
         state = "ad_after_code"
         errorMsg = ""
-        if onAdTrigger then
-            onAdTrigger(function()
-                state = "face_game"
-                LoanApp.InitFaceGame()
-            end)
-        else
-            state = "face_game"
-            LoanApp.InitFaceGame()
-        end
+        adTimer = AD_SHOW_DURATION
+        adDismissable = false
+        if onShowAd then onShowAd() end
+        DiagLog.Log("贷款", "[完成] SubmitCode → state=ad_after_code, adTimer=" .. AD_SHOW_DURATION)
     else
         errorMsg = "验证码错误"
         errorTimer = 2.5
         codeInput = ""
+        DiagLog.Log("贷款", "[失败] 验证码不匹配")
     end
 end
 
@@ -394,20 +454,24 @@ end
 -- ====================================================================
 
 function LoanApp.SubmitLoan()
+    DiagLog.Log("贷款", "[触发] SubmitLoan() 输入=" .. loanInput)
     local amount = tonumber(loanInput)
     if not amount or amount <= 0 then
         errorMsg = "请输入有效金额"
         errorTimer = 2.0
+        DiagLog.Log("贷款", "[拦截] 金额无效")
         return
     end
     if amount > LOAN_LIMIT then
         errorMsg = "超出额度上限(¥" .. LOAN_LIMIT .. ")"
         errorTimer = 2.5
+        DiagLog.Log("贷款", "[拦截] 超出额度 " .. amount .. ">" .. LOAN_LIMIT)
         return
     end
     -- 贷款成功！
     loanSuccess = true
     state = "loan_done"
+    DiagLog.Log("贷款", "[完成] SubmitLoan → state=loan_done, 金额=" .. amount)
     if onLoanComplete then
         onLoanComplete(amount)
     end
@@ -418,6 +482,18 @@ end
 -- ====================================================================
 
 function LoanApp.Update(dt)
+    -- 广告定时器（自包含广告逻辑）
+    if (state == "ad_before" or state == "ad_after_code" or faceAdPending) and adTimer > 0 then
+        local wasDismissable = adDismissable
+        adTimer = adTimer - dt
+        if adTimer <= AD_SHOW_DURATION - AD_DISMISS_HINT then
+            adDismissable = true
+        end
+        if adDismissable and not wasDismissable then
+            DiagLog.Log("贷款", "[运行] 广告可关闭了 state=" .. state .. " 剩余=" .. string.format("%.1f", adTimer) .. "s")
+        end
+    end
+
     -- 错误提示计时
     if errorTimer > 0 then
         errorTimer = errorTimer - dt
@@ -471,14 +547,9 @@ function LoanApp.Update(dt)
                     faceAdShown = faceAdShown + 1
                     faceAdPending = true
                     facePhase = "paused_ad"
-                    if onAdTrigger then
-                        onAdTrigger(function()
-                            LoanApp.ResumeFaceGame()
-                        end)
-                    else
-                        faceAdPending = false
-                        facePhase = "playing"
-                    end
+                    adTimer = AD_SHOW_DURATION
+                    adDismissable = false
+                    if onShowAd then onShowAd() end
                     break
                 end
             end

@@ -4,6 +4,7 @@
 
 local Config = require("Config")
 local UI = require("urhox-libs/UI")
+local DiagLog = require("DiagLog")
 
 local PhoneUI = {}
 
@@ -469,6 +470,7 @@ function PhoneUI.CreatePayApp()
                         backgroundColor = { 255, 80, 30, 255 },
                         borderRadius = 14,
                         onClick = function()
+                            DiagLog.Log("事件", "「立即申请」按钮被点击, callback存在=" .. tostring(onEventCallback ~= nil))
                             if onEventCallback then onEventCallback("loan_start") end
                         end,
                     },
@@ -701,6 +703,7 @@ function PhoneUI.CreateAdOverlay()
                         fontColor = { 140, 140, 140, 255 },
                         borderRadius = 4,
                         onClick = function()
+                            print("[PhoneUI] Popup '残忍拒绝' clicked → HideAd + ad_closed")
                             PhoneUI.HideAd()
                             if onEventCallback then onEventCallback("ad_closed") end
                         end,
@@ -778,6 +781,7 @@ function PhoneUI.CreateAdOverlay()
                         fontColor = { 200, 200, 200, 255 },
                         borderRadius = 11,
                         onClick = function()
+                            print("[PhoneUI] Fullscreen '跳过' clicked → HideAd + ad_closed")
                             PhoneUI.HideAd()
                             if onEventCallback then onEventCallback("ad_closed") end
                         end,
@@ -797,7 +801,6 @@ function PhoneUI.CreateAdOverlay()
                 alignItems = "center",
                 justifyContent = "space-between",
                 paddingHorizontal = 8,
-                pointerEvents = "box-only",
                 children = {
                     UI.Label {
                         id = "adBannerIcon",
@@ -820,6 +823,7 @@ function PhoneUI.CreateAdOverlay()
                         backgroundColor = { 180, 170, 150, 120 },
                         borderRadius = 9,
                         onClick = function()
+                            print("[PhoneUI] Banner × clicked → HideAd + ad_closed")
                             PhoneUI.HideAd()
                             if onEventCallback then onEventCallback("ad_closed") end
                         end,
@@ -866,6 +870,7 @@ function PhoneUI.Close()
     animProgress = 0
     currentApp = nil
 end
+
 
 function PhoneUI.IsOpen()
     return isVisible
@@ -963,11 +968,13 @@ end
 
 --- 隐藏支付面板（贷款流程激活时调用，防止底层按钮干扰）
 function PhoneUI.HidePayPanel()
+    DiagLog.Log("页面", "隐藏支付面板(payPanel), payPanel存在=" .. tostring(payPanel ~= nil))
     if payPanel then payPanel:SetVisible(false) end
 end
 
 --- 显示支付面板（贷款流程结束时恢复）
 function PhoneUI.ShowPayPanel()
+    DiagLog.Log("页面", "显示支付面板(payPanel), payPanel存在=" .. tostring(payPanel ~= nil))
     if payPanel then payPanel:SetVisible(true) end
 end
 
@@ -982,7 +989,11 @@ end
 --- 显示广告（支持多种类型）
 --- @param adData table {type="popup"|"fullscreen"|"banner", content={title,body}, acceptText, rejectText, bannerText}
 function PhoneUI.ShowAd(adData)
-    if not adOverlay then return end
+    if not adOverlay then
+        print("[PhoneUI] ShowAd FAILED: adOverlay is nil!")
+        return
+    end
+    print("[PhoneUI] ShowAd called, type=" .. tostring(adData and adData.type or "nil"))
 
     -- 兼容旧接口：如果传入字符串参数
     if type(adData) == "string" then
@@ -1042,9 +1053,9 @@ function PhoneUI.ShowAd(adData)
         if banner then banner:SetVisible(true) end
         local bannerText = adOverlay:FindById("adBannerText")
         if bannerText then bannerText:SetText(adData.bannerText or "广告") end
-        -- 横幅不需要遮罩背景，且overlay本身不拦截点击（穿透到下层）
+        -- 横幅不需要遮罩背景；overlay自身不拦截但子元素（banner关闭按钮）仍可点击
         adOverlay:SetBackgroundColor({ 0, 0, 0, 0 })
-        adOverlay:SetProp("pointerEvents", "none")
+        adOverlay:SetProp("pointerEvents", "box-none")
     end
 
     -- 记录当前广告类型（用于延迟显示逻辑）

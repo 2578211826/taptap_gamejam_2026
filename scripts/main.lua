@@ -18,6 +18,7 @@ local ItemData = require("ItemData")
 local LoanApp = require("LoanApp")
 local AdSystem = require("AdSystem")
 local DiagLog = require("DiagLog")
+local AudioManager = require("AudioManager")
 
 -- ====================================================================
 -- 全局状态
@@ -43,8 +44,9 @@ local chaseGiveUpDist = 0     -- 放弃距离（像素）
 local chaseTimer = 0          -- 追击计时（用于动画）
 
 -- 低电量警告状态
-local lowBatteryWarningShown = false   -- 2%电量警告是否已弹出
-local lowBatteryCountdown = 30         -- 关机倒计时（秒）
+local batteryWarning2Shown = false     -- 电量<=2格 警告音效是否已播放
+local lowBatteryWarningShown = false   -- 电量<=1格 警告是否已弹出
+local lowBatteryCountdown = 0          -- 关机倒计时（动态计算：剩余电量/耗电速率）
 local lowBatteryActive = false         -- 倒计时是否激活
 
 -- 鼠标状态（逻辑坐标，与NanoVG绘制坐标一致）
@@ -87,6 +89,8 @@ local slotScrollPos = { 0, 0, 0 }     -- 当前滚动位置（浮点）
 local slotTargetPos = { 0, 0, 0 }     -- 目标停止位置
 local slotScrollSpeed = { 0, 0, 0 }   -- 当前滚动速度（格/秒）
 local slotStopping = { false, false, false }  -- 是否正在减速停止
+local slotSpinSource = nil             -- 循环旋转音效的 SoundSource 引用
+local slotIgnoreCount = 0              -- 连续"无视"次数（3次则NPC拒绝）
 
 -- ====================================================================
 -- 生命周期
@@ -197,6 +201,10 @@ function Start()
     end)
     DiagLog.Log("系统", "游戏启动: " .. Config.Title)
 
+    -- 初始化音频系统
+    AudioManager.Init()
+    AudioManager.SetBGMForState(Config.State.MENU)
+
     print("=== 游戏启动: " .. Config.Title .. " ===")
 end
 
@@ -220,12 +228,12 @@ function CreateGameUI()
         height = "100%",
         pointerEvents = "box-none",
         children = {
-            -- Layer 1: HUD（电量条 + 操作提示，最底层）
-            CreateHUD(),
-            -- Layer 2: 常驻操作提示（底部）
+            -- Layer 1: 常驻操作提示（底部，最底层）
             CreateActionHints(),
-            -- Layer 3: 手机界面（广告和低电量覆盖层已内置在手机面板中）
+            -- Layer 2: 手机界面（广告和低电量覆盖层已内置在手机面板中）
             phonePanel,
+            -- Layer 3: HUD（电量条等，在手机遮罩之上，始终清晰可见）
+            CreateHUD(),
             -- Layer 4: 消息框（在手机之上，确保始终可见）
             CreateMessageBox(),
             -- Layer 6: 结局面板
@@ -248,42 +256,61 @@ function CreateHUD()
         alignItems = "center",
         pointerEvents = "none",
         children = {
-            -- 电量显示
+            -- 电量显示 + 耗电明细
             UI.Panel {
-                flexDirection = "row",
-                alignItems = "center",
-                gap = 6,
-                padding = 6,
-                backgroundColor = { 0, 0, 0, 160 },
-                borderRadius = 8,
+                gap = 3,
                 children = {
-                    UI.Label {
-                        text = "电量",
-                        fontSize = 11,
-                        fontColor = { 200, 200, 200, 255 },
-                    },
                     UI.Panel {
-                        width = 80, height = 16,
-                        backgroundColor = { 40, 40, 50, 255 },
-                        borderRadius = 4,
-                        borderWidth = 1,
-                        borderColor = { 100, 100, 120, 255 },
-                        overflow = "hidden",
+                        flexDirection = "row",
+                        alignItems = "center",
+                        gap = 6,
+                        padding = 6,
+                        backgroundColor = { 0, 0, 0, 160 },
+                        borderRadius = 8,
                         children = {
+                            UI.Label {
+                                text = "电量",
+                                fontSize = 11,
+                                fontColor = { 200, 200, 200, 255 },
+                            },
                             UI.Panel {
-                                id = "batteryFill",
-                                width = "100%",
-                                height = "100%",
-                                backgroundColor = { 255, 50, 50, 255 },
-                                borderRadius = 3,
-                            }
+                                width = 80, height = 16,
+                                backgroundColor = { 40, 40, 50, 255 },
+                                borderRadius = 4,
+                                borderWidth = 1,
+                                borderColor = { 100, 100, 120, 255 },
+                                overflow = "hidden",
+                                children = {
+                                    UI.Panel {
+                                        id = "batteryFill",
+                                        width = "100%",
+                                        height = "100%",
+                                        backgroundColor = { 255, 50, 50, 255 },
+                                        borderRadius = 3,
+                                    }
+                                }
+                            },
+                            UI.Label {
+                                id = "batteryText",
+                                text = "5%",
+                                fontSize = 11,
+                                fontColor = { 255, 80, 80, 255 },
+                            },
                         }
                     },
-                    UI.Label {
-                        id = "batteryText",
-                        text = "5%",
-                        fontSize = 11,
-                        fontColor = { 255, 80, 80, 255 },
+                    -- 耗电明细面板
+                    UI.Panel {
+                        id = "drainInfoPanel",
+                        paddingLeft = 6, paddingRight = 6, paddingBottom = 4, paddingTop = 2,
+                        backgroundColor = { 0, 0, 0, 120 },
+                        borderRadius = 6,
+                        gap = 1,
+                        children = {
+                            UI.Label { id = "drainLine1", text = "", fontSize = 9, fontColor = { 180, 180, 180, 200 } },
+                            UI.Label { id = "drainLine2", text = "", fontSize = 9, fontColor = { 255, 200, 100, 200 } },
+                            UI.Label { id = "drainLine3", text = "", fontSize = 9, fontColor = { 255, 150, 80, 200 } },
+                            UI.Label { id = "drainLine4", text = "", fontSize = 9, fontColor = { 255, 80, 80, 200 } },
+                        }
                     },
                 }
             },
@@ -583,8 +610,9 @@ function StartGame()
     chaseActive = false
 
     -- 重置低电量和广告状态
+    batteryWarning2Shown = false
     lowBatteryWarningShown = false
-    lowBatteryCountdown = 30
+    lowBatteryCountdown = 0
     lowBatteryActive = false
     gs.loanPhoneHintStart = nil
     PhoneUI.HideLowBatteryWarning()
@@ -600,6 +628,10 @@ function StartGame()
     WorldRenderer.Init(screenW, screenH)
     gs.playerY = WorldRenderer.GetGroundY()
 
+    -- 重置音频并播放城市 BGM
+    AudioManager.ResetBGM()
+    AudioManager.SetBGMForState(Config.State.PLAYING)
+
     print("游戏开始！电量: 5%")
 end
 
@@ -613,6 +645,8 @@ end
 function StartChase()
     chaseActive = true
     gs.phase = Config.State.CHASE
+    AudioManager.ChaseAlert()
+    AudioManager.SetBGMForState(Config.State.CHASE)
     -- 玩家从商店门口开始跑，给玩家一个合理的领先距离
     chaseStartX = gs.playerX
     -- 店主从商店里面出来，比玩家落后 200 像素（模拟反应时间+从柜台跑到门口）
@@ -645,6 +679,7 @@ function UpdateChase(dt)
         if gs.playerOnGround then
             gs.playerVelY = -Config.Player.JumpStrength * 0.7
             gs.playerOnGround = false
+            AudioManager.Jump()
         end
     end
     -- 重力
@@ -655,6 +690,7 @@ function UpdateChase(dt)
             gs.playerY = WorldRenderer.GetGroundY()
             gs.playerVelY = 0
             gs.playerOnGround = true
+            AudioManager.Land()
         end
     end
 
@@ -686,6 +722,7 @@ function UpdateChase(dt)
     -- 判定：被抓住
     if chaseShopkeeperX >= gs.playerX - Config.Chase.CatchDistance then
         chaseActive = false
+        AudioManager.ChaseCaught()
         TriggerEnding(Config.Ending.ARRESTED, "偷东西被店主抓住了")
         return
     end
@@ -693,6 +730,8 @@ function UpdateChase(dt)
     -- 判定：店主放弃（玩家跑远了）
     if gs.playerX - chaseShopkeeperX >= chaseGiveUpDist then
         chaseActive = false
+        AudioManager.ChaseEscape()
+        AudioManager.SetBGMForState(Config.State.PLAYING)
         gs.phase = Config.State.PLAYING
         print("[Chase] 店主放弃追击，你逃掉了！但你偷了东西...")
         return
@@ -813,6 +852,21 @@ function TriggerEnding(endingType, reason)
     gs.phase = Config.State.ENDING
     gs.ending = endingType
     gs.endingReason = reason
+
+    -- 停止 BGM 并播放结局音效
+    AudioManager.StopBGM()
+    if endingType == Config.Ending.WIN then
+        AudioManager.EndingChargeSuccess()
+    elseif endingType == Config.Ending.NO_BATTERY then
+        AudioManager.PhoneShutdown()
+        -- EndingNoBattery 延迟播放（在 PhoneShutdown 之后）
+        -- 简化处理：直接播放，引擎会自动混合
+        AudioManager.EndingNoBattery()
+    elseif endingType == Config.Ending.STOLEN then
+        AudioManager.EndingStolen()
+    elseif endingType == Config.Ending.ARRESTED then
+        AudioManager.EndingArrested()
+    end
 
     -- 停止低电量倒计时并隐藏警告
     lowBatteryActive = false
@@ -960,12 +1014,14 @@ function HandlePhoneEvent(event)
         DiagLog.Log("贷款", "已隐藏支付面板")
 
     elseif event == "app_open" then
+        AudioManager.AppTap()
         gs.battery = gs.battery - Config.Battery.CostOpenApp
         gs.stats.phoneOpenCount = gs.stats.phoneOpenCount + 1
         -- 可能弹广告
         if AdSystem.ShouldTrigger(gs.battery) then
             local ad = AdSystem.TriggerAd(gs.battery)
             DiagLog.Log("广告", "app_open触发广告: " .. (ad.title or "?") .. " 类型=" .. (ad.type or "?"))
+            AudioManager.AdPopup()
             PhoneUI.ShowAd(ad)
             gs.stats.adWatchCount = gs.stats.adWatchCount + 1
         end
@@ -983,8 +1039,9 @@ function HandlePhoneEvent(event)
         end
 
     elseif event == "ad_misclick" then
+        AudioManager.AdMisclick()
         gs.stats.adMisclickCount = gs.stats.adMisclickCount + 1
-        gs.battery = gs.battery - Config.Battery.DrainAd
+        gs.battery = gs.battery - Config.Battery.CostAdClick
         -- 误点广告 → 推进贷款流程（广告算"看完了"）+ 跳转假应用
         if LoanApp.IsAdShowing() then
             LoanApp.DismissAd()
@@ -994,6 +1051,7 @@ function HandlePhoneEvent(event)
         PhoneUI.ShowFakeApp("电量守护", gs.battery)
 
     elseif event == "ad_closed" then
+        AudioManager.AdClose()
         -- 广告关闭 → 如果贷款处于广告状态，推进流程
         if LoanApp.IsAdShowing() then
             LoanApp.DismissAd()
@@ -1020,13 +1078,17 @@ function HandleInteract()
 
     elseif item.type == "shop" then
         -- 进入商店室内场景
+        AudioManager.DoorEnter()
+        AudioManager.SetBGMForState(Config.State.SHOP)
         gs.phase = Config.State.SHOP
         ShopScene.Enter(gs, function(hasUnpaid)
             -- 退出商店回调
+            AudioManager.DoorExit()
             if hasUnpaid then
                 -- 带着未付款物品离开 → 触发追击
                 StartChase()
             else
+                AudioManager.SetBGMForState(Config.State.PLAYING)
                 gs.phase = Config.State.PLAYING
             end
         end)
@@ -1048,6 +1110,7 @@ function HandleInteract()
         end
 
     elseif item.type == "npc" then
+        AudioManager.Interact()
         OpenNPCDialogue()
     end
 end
@@ -1056,6 +1119,7 @@ end
 -- NPC 对话系统
 -- ====================================================================
 function OpenNPCDialogue()
+    AudioManager.NpcTalk()
     -- 判断 NPC 类型
     if gs.world.npcWillSteal then
         npcType = "bad"
@@ -1128,6 +1192,11 @@ function OpenSlotGame()
 end
 
 function CloseSlotGame()
+    -- 确保停止旋转音效
+    if slotSpinSource then
+        AudioManager.StopSFXLoop(slotSpinSource)
+        slotSpinSource = nil
+    end
     slotGameOpen = false
     slotPhase = "idle"
     slotResult = nil
@@ -1151,10 +1220,17 @@ function SlotInsertCoin()
     slotScrollSpeed = { 12 + math.random() * 4, 14 + math.random() * 4, 16 + math.random() * 4 }
     -- 从当前位置继续滚
     slotTargetPos = { 0, 0, 0 }
+    -- 停止之前可能残留的旋转音效
+    if slotSpinSource then
+        AudioManager.StopSFXLoop(slotSpinSource)
+        slotSpinSource = nil
+    end
+    slotSpinSource = AudioManager.SlotSpin()
 end
 
 function SlotStopNext()
     if slotPhase ~= "spinning" then return end
+    AudioManager.SlotStop()
     for i = 1, 3 do
         if not slotStopped[i] and not slotStopping[i] then
             slotStopping[i] = true
@@ -1185,12 +1261,28 @@ function EvaluateSlotResult()
         slotResult = "win"
     elseif s1 == "抢夺" and s2 == "抢夺" and s3 == "抢夺" then
         slotResult = "steal"
+    elseif s1 == "无视" and s2 == "无视" and s3 == "无视" then
+        -- 三无视：NPC直接拒绝，结束博弈
+        slotResult = "refuse"
     else
         local chargeCount = 0
         if s1 == "充电" then chargeCount = chargeCount + 1 end
         if s2 == "充电" then chargeCount = chargeCount + 1 end
         if s3 == "充电" then chargeCount = chargeCount + 1 end
-        if chargeCount == 2 then
+        -- 统计无视数量，累加连续无视计数
+        local ignoreCount = 0
+        if s1 == "无视" then ignoreCount = ignoreCount + 1 end
+        if s2 == "无视" then ignoreCount = ignoreCount + 1 end
+        if s3 == "无视" then ignoreCount = ignoreCount + 1 end
+        if ignoreCount >= 2 then
+            slotIgnoreCount = slotIgnoreCount + 1
+        else
+            slotIgnoreCount = 0  -- 有充电或抢夺出现时重置
+        end
+        -- 累计3次高无视则NPC失去耐心
+        if slotIgnoreCount >= 3 then
+            slotResult = "refuse"
+        elseif chargeCount == 2 then
             slotResult = "差一点就说服他了..."
         else
             slotResult = "他不太愿意..."
@@ -1200,13 +1292,25 @@ end
 
 function SlotAcknowledge()
     if slotResult == "win" then
+        AudioManager.SlotWin()
         slotGameOpen = false
         TriggerEnding(Config.Ending.WIN, "NPC博弈赢得充电宝")
     elseif slotResult == "steal" then
+        AudioManager.SlotLose()
         slotGameOpen = false
         TriggerEnding(Config.Ending.STOLEN, "NPC博弈失败，手机被没收")
+    elseif slotResult == "refuse" then
+        -- 三无视：NPC拒绝继续博弈，关闭老虎机
+        AudioManager.SlotLose()
+        slotGameOpen = false
+        slotPhase = "idle"
+        slotResult = nil
+        slotIgnoreCount = 0
+        -- 回到正常游戏，NPC不再理你
+        gs.phase = Config.State.PLAYING
     else
         -- 没中：回到 idle 可以再试
+        AudioManager.SlotLose()
         slotPhase = "idle"
         slotResult = "没说服他...再试一次？"
     end
@@ -1230,6 +1334,11 @@ function UpdateSlotAnimation(dt)
                 -- 检查是否全部停止
                 if slotStopped[1] and slotStopped[2] and slotStopped[3] then
                     slotPhase = "result"
+                    -- 停止旋转循环音效
+                    if slotSpinSource then
+                        AudioManager.StopSFXLoop(slotSpinSource)
+                        slotSpinSource = nil
+                    end
                     EvaluateSlotResult()
                 end
             else
@@ -1269,6 +1378,9 @@ end
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
+    -- 音频系统更新（crossfade 等）
+    AudioManager.Update(dt)
+
     -- 手机滑入/滑出动画（在所有状态下都要更新）
     PhoneUI.UpdateAnim(dt)
 
@@ -1277,6 +1389,7 @@ function HandleUpdate(eventType, eventData)
         gs.phoneOpen = false
         if gs.phase == Config.State.PHONE then
             gs.phase = Config.State.PLAYING
+            AudioManager.SetBGMForState(Config.State.PLAYING)
         end
     end
 
@@ -1320,26 +1433,51 @@ function HandleUpdate(eventType, eventData)
     gs.stats.timeElapsed = gs.stats.timeElapsed + dt
     gs.totalTime = gs.totalTime + dt
 
-    -- 电量消耗：任何游戏状态都扣基础电量
-    local drain = Config.Battery.DrainBase
-    -- 手机打开、扫码或商店内时 +50% 基础消耗
+    -- 电量消耗：分项计算，用于显示明细
+    local drainBase = Config.Battery.DrainBase       -- 基础耗电（始终存在）
+    local drainScreen = 0                            -- 手机屏幕额外
+    local drainApp = 0                               -- App 额外
+    local drainAd = 0                                -- 广告额外
+
+    -- 手机屏幕打开时
     if gs.phoneOpen or gs.phase == Config.State.SCANNING or gs.phase == Config.State.SHOP then
-        drain = drain * 1.5
+        drainScreen = Config.Battery.DrainScreenOn
     end
-    -- App 额外消耗
+    -- App 运行时
     if gs.phoneOpen and PhoneUI.GetCurrentApp() then
-        drain = drain + Config.Battery.DrainApp
+        drainApp = Config.Battery.DrainApp
     end
+    -- 广告播放时（持续耗电）
+    if LoanApp.IsAdShowing and LoanApp.IsAdShowing() then
+        drainAd = Config.Battery.DrainAd
+    end
+
+    local drain = drainBase + drainScreen + drainApp + drainAd
     gs.battery = gs.battery - drain * dt
+    -- 保存当前耗电明细供 UI 显示
+    gs.drainInfo = {
+        base = drainBase,
+        screen = drainScreen,
+        app = drainApp,
+        ad = drainAd,
+        total = drain,
+    }
+    -- 电量联动 BGM 变调/音量
+    AudioManager.UpdateBatteryEffect(gs.battery)
     CheckBattery()
 
-    -- 低电量警告检测：电量 <= 2% 时激活倒计时
-    if gs.battery <= 2 and gs.battery > 0 and not lowBatteryWarningShown then
+    -- 电量 <= 2格 播放警告音效（只一次）
+    if gs.battery <= 2.0 and gs.battery > 0 and not batteryWarning2Shown then
+        batteryWarning2Shown = true
+        AudioManager.BatteryWarning()
+    end
+
+    -- 低电量警告检测：电量 <= 1格 时激活倒计时
+    if gs.battery <= 1.0 and gs.battery > 0 and not lowBatteryWarningShown then
         lowBatteryWarningShown = true
         lowBatteryActive = true
-        lowBatteryCountdown = 30
+        AudioManager.BatteryCritical()
         -- 如果当前在自由行走状态，自动弹出手机并显示警告
-        -- 否则（老虎机/扫码/商店等）只激活 HUD 倒计时，不打断当前活动
         if gs.phase == Config.State.PLAYING then
             gs.phoneOpen = true
             gs.phase = Config.State.PHONE
@@ -1348,16 +1486,13 @@ function HandleUpdate(eventType, eventData)
         end
     end
 
-    -- 低电量倒计时（激活后每帧递减）
+    -- 低电量倒计时（动态计算：剩余电量 / 当前耗电速率，保证归零时电量正好没电）
     if lowBatteryActive and gs.battery > 0 then
-        lowBatteryCountdown = lowBatteryCountdown - dt
+        lowBatteryCountdown = gs.battery / drain  -- 实时计算剩余秒数
         PhoneUI.UpdateLowBatteryCountdown(lowBatteryCountdown)
-        if lowBatteryCountdown <= 0 then
-            lowBatteryCountdown = 0
-            lowBatteryActive = false
-            gs.battery = 0
-            TriggerEnding(Config.Ending.NO_BATTERY, "手机关机")
-        end
+    elseif gs.battery <= 0 then
+        lowBatteryCountdown = 0
+        lowBatteryActive = false
     end
 
     -- 更新电量 UI
@@ -1395,6 +1530,11 @@ function UpdatePlayerMovement(dt)
         moved = true
     end
 
+    -- 脚步声（地面移动时）
+    if moved and gs.playerOnGround then
+        AudioManager.Footstep()
+    end
+
     -- 重力和跳跃
     if not gs.playerOnGround then
         gs.playerVelY = gs.playerVelY + 1200 * dt
@@ -1403,6 +1543,7 @@ function UpdatePlayerMovement(dt)
             gs.playerY = WorldRenderer.GetGroundY()
             gs.playerVelY = 0
             gs.playerOnGround = true
+            AudioManager.Land()
         end
     end
 
@@ -1547,11 +1688,58 @@ function UpdateBatteryUI()
         elseif gs.battery <= 3 then
             fill:SetStyle({ backgroundColor = { 255, 150, 0, 255 } })
         else
-            fill:SetStyle({ backgroundColor = { 255, 50, 50, 255 } })
+            fill:SetStyle({ backgroundColor = { 50, 200, 50, 255 } })
         end
     end
     if text then
         text:SetText(string.format("%.1f%%", math.max(0, gs.battery)))
+    end
+
+    -- 更新耗电明细显示
+    local info = gs.drainInfo
+    if info then
+        local line1 = uiRoot:FindById("drainLine1")
+        local line2 = uiRoot:FindById("drainLine2")
+        local line3 = uiRoot:FindById("drainLine3")
+        local line4 = uiRoot:FindById("drainLine4")
+
+        -- 第一行始终显示基础耗电
+        if line1 then
+            line1:SetText(string.format("基础耗电 %.3f/s", info.base))
+        end
+
+        -- 第二行：手机屏幕（仅在有时显示）
+        if line2 then
+            if info.screen > 0 then
+                line2:SetText(string.format("手机屏幕 +%.3f/s", info.screen))
+                line2:SetVisible(true)
+            else
+                line2:SetText("")
+                line2:SetVisible(false)
+            end
+        end
+
+        -- 第三行：App运行
+        if line3 then
+            if info.app > 0 then
+                line3:SetText(string.format("运行App +%.3f/s", info.app))
+                line3:SetVisible(true)
+            else
+                line3:SetText("")
+                line3:SetVisible(false)
+            end
+        end
+
+        -- 第四行：广告
+        if line4 then
+            if info.ad > 0 then
+                line4:SetText(string.format("广告播放 +%.3f/s", info.ad))
+                line4:SetVisible(true)
+            else
+                line4:SetText("")
+                line4:SetVisible(false)
+            end
+        end
     end
 end
 
@@ -1731,6 +1919,7 @@ function HandleKeyDown(eventType, eventData)
     if key == KEY_TAB then
         if gs.phoneOpen then
             -- 触发滑出动画，状态在动画完成后切换
+            AudioManager.PhoneClose()
             PhoneUI.Close()
             -- 关闭手机时隐藏低电量警告弹窗（倒计时继续）
             PhoneUI.HideLowBatteryWarning()
@@ -1739,6 +1928,8 @@ function HandleKeyDown(eventType, eventData)
             gs.phase = Config.State.PHONE
             gs.battery = gs.battery - Config.Battery.CostOpenPhone
             gs.stats.phoneOpenCount = gs.stats.phoneOpenCount + 1
+            AudioManager.PhoneOpen()
+            AudioManager.SetBGMForState(Config.State.PHONE)
             PhoneUI.Open()
             CheckBattery()
 
@@ -1767,6 +1958,7 @@ function HandleKeyDown(eventType, eventData)
         if gs.playerOnGround then
             gs.playerVelY = -Config.Player.JumpStrength
             gs.playerOnGround = false
+            AudioManager.Jump()
         end
         return
     end
@@ -2433,6 +2625,9 @@ function RenderSlotGame(vg, sw, sh)
         elseif slotResult == "steal" then
             nvgFillColor(vg, nvgRGBA(255, 50, 50, 255))
             nvgText(vg, panelX + panelW / 2, statusY, "糟糕！他抢走了你的手机！")
+        elseif slotResult == "refuse" then
+            nvgFillColor(vg, nvgRGBA(180, 180, 180, 255))
+            nvgText(vg, panelX + panelW / 2, statusY, "他不耐烦了，拒绝和你谈...")
         else
             nvgFillColor(vg, nvgRGBA(200, 200, 220, 255))
             nvgText(vg, panelX + panelW / 2, statusY, slotResult)
@@ -2451,7 +2646,12 @@ function RenderSlotGame(vg, sw, sh)
     local actionText = ""
     if slotPhase == "idle" then actionText = "开始说服"
     elseif slotPhase == "spinning" then actionText = "停止"
-    elseif slotPhase == "result" then actionText = "确认"
+    elseif slotPhase == "result" then
+        if slotResult == "refuse" then
+            actionText = "离开"
+        else
+            actionText = "确认"
+        end
     end
 
     local actionHover = (hoveredBtn == "slot_action")
@@ -2729,20 +2929,66 @@ function RenderLoanFlow(vg, sw, sh)
         local facePhase = LoanApp.GetFacePhase()
 
         if facePhase == "ready" then
-            -- 等待开始
-            nvgFontSize(vg, 11)
-            nvgFillColor(vg, nvgRGBA(200, 220, 255, 220))
-            nvgText(vg, centerX, fPanelY + 32, "请面对摄像头完成动作")
-            nvgFontSize(vg, 9)
-            nvgFillColor(vg, nvgRGBA(160, 180, 220, 200))
-            nvgText(vg, centerX, fPanelY + 52, "1=眨眼 2=张嘴 3=摇头 4=点头")
+            -- 准备页面：详细按键说明
+            local ry = fPanelY + 30
             nvgFontSize(vg, 10)
-            nvgFillColor(vg, nvgRGBA(255, 220, 80, 240))
-            nvgText(vg, centerX, fPanelY + 75, "按 Enter 开始验证")
-            -- 评分说明
+            nvgFillColor(vg, nvgRGBA(200, 220, 255, 220))
+            nvgText(vg, centerX, ry, "请根据提示完成面部动作验证")
+            ry = ry + 20
+
+            -- 操作按键说明表
             nvgFontSize(vg, 9)
+            nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+            local keyX = fPanelX + 20
+            local descX = fPanelX + 55
+
+            -- 表头
+            nvgFillColor(vg, nvgRGBA(100, 200, 255, 200))
+            nvgText(vg, keyX, ry, "按键")
+            nvgText(vg, descX, ry, "动作")
+            ry = ry + 4
+            nvgBeginPath(vg)
+            nvgMoveTo(vg, keyX, ry + 10)
+            nvgLineTo(vg, fPanelX + fPanelW - 20, ry + 10)
+            nvgStrokeColor(vg, nvgRGBA(60, 100, 150, 120))
+            nvgStrokeWidth(vg, 0.5)
+            nvgStroke(vg)
+            ry = ry + 14
+
+            -- 四个按键
+            local actions = {
+                { key = "1", name = "眨眼", icon = "👁" },
+                { key = "2", name = "张嘴", icon = "👄" },
+                { key = "3", name = "摇头", icon = "↔" },
+                { key = "4", name = "点头", icon = "↕" },
+            }
+            for _, act in ipairs(actions) do
+                nvgFillColor(vg, nvgRGBA(255, 220, 100, 240))
+                nvgText(vg, keyX + 5, ry, act.key)
+                nvgFillColor(vg, nvgRGBA(220, 220, 240, 220))
+                nvgText(vg, descX, ry, act.icon .. " " .. act.name)
+                ry = ry + 16
+            end
+            ry = ry + 6
+
+            -- 判定说明
             nvgFillColor(vg, nvgRGBA(140, 160, 200, 180))
-            nvgText(vg, centerX, fPanelY + 100, "需要 " .. LoanApp.GetPassScore() .. " 分通过 (满分32)")
+            nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+            nvgText(vg, centerX, ry, "动作出现时按对应按键，越准分越高")
+            ry = ry + 14
+            nvgText(vg, centerX, ry, "Perfect=4分  Great=2分  Good=1分")
+            ry = ry + 14
+            nvgFillColor(vg, nvgRGBA(255, 180, 80, 200))
+            nvgText(vg, centerX, ry, "需要 " .. LoanApp.GetPassScore() .. " 分通过 (满分32)")
+            ry = ry + 22
+
+            -- 开始按钮提示
+            nvgFontSize(vg, 11)
+            nvgFillColor(vg, nvgRGBA(100, 255, 150, 255))
+            local blink = math.floor(gs.totalTime * 2) % 2 == 0
+            if blink then
+                nvgText(vg, centerX, ry, "[ Enter 开始验证 ]")
+            end
 
         elseif facePhase == "playing" or facePhase == "paused_ad" then
             -- 分数和连击
@@ -2932,23 +3178,52 @@ function RenderLoanFlow(vg, sw, sh)
         nvgText(vg, centerX, py + 120, "按 Enter 关闭")
 
     elseif loanState == "failed" then
-        local py = DrawPanel("验证失败", 200)
+        local py = DrawPanel("验证失败", 260)
         -- 失败图标
-        nvgFontSize(vg, 24)
+        nvgFontSize(vg, 20)
         nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
         nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
-        nvgText(vg, centerX, py + 35, "✗")
+        nvgText(vg, centerX, py + 25, "✗")
         -- 分数
-        nvgFontSize(vg, 11)
-        nvgFillColor(vg, nvgRGBA(200, 200, 220, 220))
-        nvgText(vg, centerX, py + 70, "识别分数: " .. LoanApp.GetFaceScore() .. "/" .. LoanApp.GetPassScore())
         nvgFontSize(vg, 10)
-        nvgFillColor(vg, nvgRGBA(255, 180, 80, 200))
-        nvgText(vg, centerX, py + 92, "人脸识别未通过，请重试")
-        -- 操作
+        nvgFillColor(vg, nvgRGBA(200, 200, 220, 220))
+        nvgText(vg, centerX, py + 50, "识别分数: " .. LoanApp.GetFaceScore() .. "/" .. LoanApp.GetPassScore())
         nvgFontSize(vg, 9)
-        nvgFillColor(vg, nvgRGBA(100, 160, 200, 180))
-        nvgText(vg, centerX, py + 125, "Enter=重试 | Esc=放弃")
+        nvgFillColor(vg, nvgRGBA(255, 180, 80, 200))
+        nvgText(vg, centerX, py + 66, "人脸识别未通过，请重试")
+
+        -- 按键教程（帮助玩家理解操作）
+        local tutY = py + 86
+        nvgFontSize(vg, 8)
+        nvgFillColor(vg, nvgRGBA(100, 200, 255, 180))
+        nvgText(vg, centerX, tutY, "-- 操作提示 --")
+        tutY = tutY + 14
+        nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+        local keyX = phoneRect.x + (phoneRect.w - panelW) / 2 + 25
+        local actions = {
+            { key = "1", name = "眨眼", icon = "👁" },
+            { key = "2", name = "张嘴", icon = "👄" },
+            { key = "3", name = "摇头", icon = "↔" },
+            { key = "4", name = "点头", icon = "↕" },
+        }
+        for _, act in ipairs(actions) do
+            nvgFillColor(vg, nvgRGBA(255, 220, 100, 220))
+            nvgText(vg, keyX, tutY, "按 " .. act.key)
+            nvgFillColor(vg, nvgRGBA(200, 210, 230, 200))
+            nvgText(vg, keyX + 35, tutY, "→ " .. act.icon .. " " .. act.name)
+            tutY = tutY + 13
+        end
+        tutY = tutY + 4
+        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
+        nvgFontSize(vg, 8)
+        nvgFillColor(vg, nvgRGBA(140, 160, 200, 160))
+        nvgText(vg, centerX, tutY, "节拍出现时按对应键，越准分越高")
+
+        -- 操作
+        tutY = tutY + 16
+        nvgFontSize(vg, 9)
+        nvgFillColor(vg, nvgRGBA(100, 255, 150, 200))
+        nvgText(vg, centerX, tutY, "Enter=重试 | Esc=放弃")
     end
 
     -- ===== SMS 横幅（手机内容区顶部）=====

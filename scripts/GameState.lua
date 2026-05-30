@@ -84,6 +84,15 @@ function GameState.New()
         totalTime = 0,
         lagTimer = 0,
         isLagging = false,
+
+        -- 耗电明细（供 HUD 显示）
+        drainInfo = {
+            base = Config.Battery.DrainBase,
+            screen = 0,
+            app = 0,
+            ad = 0,
+            total = Config.Battery.DrainBase,
+        },
     }
     return state
 end

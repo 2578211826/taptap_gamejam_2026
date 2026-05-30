@@ -6,6 +6,7 @@
 
 local Config = require("Config")
 local ItemData = require("ItemData")
+local AudioManager = require("AudioManager")
 
 local ShopScene = {}
 
@@ -256,6 +257,7 @@ function ShopScene.PickUpItem()
     end
 
     -- 拿取物品（注：此时还未付款，拿走就是"偷"直到去柜台结账）
+    AudioManager.ItemPickup()
     table.insert(gameState.inventory, item)
 
     -- 从货架移除
@@ -464,6 +466,7 @@ function ShopScene.CounterConfirm()
         -- 尝试付款
         if gameState.money >= option.total then
             -- 付款成功
+            AudioManager.ItemPay()
             gameState.money = gameState.money - option.total
             gameState.stats.moneySpent = gameState.stats.moneySpent + option.total
             gameState.stats.payCount = (gameState.stats.payCount or 0) + 1

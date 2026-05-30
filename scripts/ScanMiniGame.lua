@@ -7,6 +7,7 @@
 -- ====================================================================
 
 local Config = require("Config")
+local AudioManager = require("AudioManager")
 
 local ScanMiniGame = {}
 
@@ -243,6 +244,7 @@ function ScanMiniGame.OnClick()
 
     if isAligned and isClear then
         -- 成功！进入加载状态
+        AudioManager.ScanSuccess()
         hintText = "识别成功！正在加载..."
         hintTimer = 10
         loadingActive = true
@@ -259,6 +261,7 @@ function ScanMiniGame.OnClick()
         end
     else
         -- 失败 - 进入重新对焦
+        AudioManager.ScanFail()
         refocusTimer = REFOCUS_DURATION
 
         -- 失败反馈文案

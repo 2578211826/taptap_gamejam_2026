@@ -10,6 +10,7 @@
 -- ====================================================================
 
 local DiagLog = require("DiagLog")
+local AudioManager = require("AudioManager")
 
 local LoanApp = {}
 
@@ -151,6 +152,7 @@ end
 --- 启动贷款流程
 function LoanApp.Start()
     DiagLog.Log("贷款", "[触发] LoanApp.Start() 被调用")
+    AudioManager.Notification()
     state = "ad_before"
     phoneInput = ""
     codeInput = ""
@@ -237,6 +239,7 @@ end
 
 --- 处理数字键输入
 function LoanApp.OnDigitInput(digit)
+    AudioManager.Typing()
     if state == "input_phone" then
         if #phoneInput < 12 then
             phoneInput = phoneInput .. digit
@@ -267,6 +270,7 @@ end
 
 --- 确认（Enter）
 function LoanApp.OnConfirm()
+    AudioManager.InputConfirm()
     DiagLog.Log("贷款", "[触发] OnConfirm() state=" .. state .. " facePhase=" .. tostring(facePhase))
     if state == "input_phone" then
         LoanApp.SubmitPhone()
@@ -441,14 +445,17 @@ function LoanApp.JudgeFaceInput(digit)
             beat.result = "Perfect"
             faceScore = faceScore + SCORE_PERFECT
             faceCombo = faceCombo + 1
+            AudioManager.RhythmPerfect()
         elseif dist <= GREAT_WINDOW then
             beat.result = "Great"
             faceScore = faceScore + SCORE_GREAT
             faceCombo = faceCombo + 1
+            AudioManager.RhythmGood()
         elseif dist <= GOOD_WINDOW then
             beat.result = "Good"
             faceScore = faceScore + SCORE_GOOD
             faceCombo = faceCombo + 1
+            AudioManager.RhythmGood()
         end
 
         beat.resultTimer = 1.0
@@ -460,6 +467,7 @@ function LoanApp.JudgeFaceInput(digit)
         faceCombo = 0
         faceLastJudge = "Miss"
         faceLastJudgeTimer = 0.8
+        AudioManager.RhythmMiss()
     end
 end
 
@@ -490,6 +498,7 @@ function LoanApp.SubmitLoan()
     -- 贷款成功！
     loanSuccess = true
     state = "loan_done"
+    AudioManager.LoanApproved()
     DiagLog.Log("贷款", "[完成] SubmitLoan → state=loan_done, 金额=" .. amount)
     if onLoanComplete then
         onLoanComplete(amount)

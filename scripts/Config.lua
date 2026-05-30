@@ -7,15 +7,16 @@ local Config = {}
 -- 游戏标题
 Config.Title = "完蛋了，手机没电了"
 
--- 电量系统
+-- 电量系统（每格约30秒基础耗电）
 Config.Battery = {
-    Initial = 5.0,         -- 初始电量百分比
-    DrainBase = 0.08,      -- 每秒基础耗电（手机关闭时）
-    DrainScreenOn = 0.25,  -- 手机屏幕打开时额外耗电
-    DrainApp = 0.15,       -- 使用 App 时额外耗电
-    DrainAd = 0.3,         -- 播放广告时额外耗电
-    CostOpenPhone = 0.05,  -- 打开手机消耗
-    CostOpenApp = 0.08,    -- 打开 App 消耗
+    Initial = 5.0,         -- 初始电量（5格）
+    DrainBase = 0.033,     -- 每秒基础耗电（手机关闭，~30s/格）
+    DrainScreenOn = 0.017, -- 手机屏幕打开时额外耗电（+0.017，合计0.050/s，~20s/格）
+    DrainApp = 0.012,      -- 使用 App 时额外耗电（+0.012，合计0.062/s，~16s/格）
+    DrainAd = 0.025,       -- 播放广告时额外耗电（+0.025/s持续）
+    CostOpenPhone = 0.02,  -- 打开手机一次性消耗
+    CostOpenApp = 0.03,    -- 打开 App 一次性消耗
+    CostAdClick = 0.05,    -- 误点广告一次性消耗
 }
 
 -- 电量阶段效果

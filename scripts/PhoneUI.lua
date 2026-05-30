@@ -9,9 +9,16 @@ local PhoneUI = {}
 
 -- 内部状态
 local phoneRoot = nil
+local phoneSlider = nil      -- 滑动容器（手+手机）
 local isVisible = false
 local currentApp = nil
 local onEventCallback = nil -- 回调给主游戏处理事件
+
+-- 滑入动画状态
+local ANIM_DURATION = 0.35   -- 动画时长（秒）
+local animState = "hidden"   -- "hidden" | "sliding_in" | "visible" | "sliding_out"
+local animProgress = 0       -- 0→1 动画进度
+local animOffset = 600       -- 当前Y偏移（像素，正=向下偏移）
 
 -- App 内容面板引用
 local mapPanel = nil
@@ -34,16 +41,17 @@ function PhoneUI.Init(eventCallback)
 end
 
 function PhoneUI.CreateUI()
-    -- 手机框架
-    phoneRoot = UI.Panel {
-        id = "phoneFrame",
-        visible = false,
+    -- 手+手机的滑动容器
+    phoneSlider = UI.Panel {
+        id = "phoneSlider",
         position = "absolute",
-        top = 0, left = 0, right = 0, bottom = 0,
-        justifyContent = "center",
+        bottom = -600,  -- 初始在屏幕下方（不可见）
+        left = 0, right = 0,
+        height = 620,
         alignItems = "center",
-        backgroundColor = { 0, 0, 0, 150 },
+        justifyContent = "flex-end",
         children = {
+            -- 手机本体
             UI.Panel {
                 id = "phoneBody",
                 width = 280,
@@ -81,7 +89,7 @@ function PhoneUI.CreateUI()
                         alignItems = "center",
                         children = {
                             UI.Button {
-                                text = "关闭手机",
+                                text = "放下手机",
                                 fontSize = 11,
                                 height = 26,
                                 backgroundColor = { 60, 60, 80, 255 },
@@ -92,15 +100,66 @@ function PhoneUI.CreateUI()
                             }
                         }
                     },
+                    -- 广告覆盖层（绝对定位，覆盖在手机内容之上）
+                    PhoneUI.CreateAdOverlay(),
+                    -- 低电量警告覆盖层（绝对定位，覆盖在手机内容之上）
+                    PhoneUI.CreateLowBatteryOverlay(),
                 }
-            }
+            },
+            -- 手（握持手机底部的手掌）
+            UI.Panel {
+                id = "handGrip",
+                width = 200,
+                height = 120,
+                alignItems = "center",
+                children = {
+                    -- 手腕/手臂
+                    UI.Panel {
+                        width = 80,
+                        height = 120,
+                        backgroundColor = { 220, 180, 150, 255 },
+                        borderRadius = 20,
+                    },
+                    -- 左拇指（覆盖在手机左侧）
+                    UI.Panel {
+                        position = "absolute",
+                        top = -12,
+                        left = 40,
+                        width = 22,
+                        height = 40,
+                        backgroundColor = { 210, 170, 140, 255 },
+                        borderRadius = 10,
+                    },
+                    -- 右拇指区域
+                    UI.Panel {
+                        position = "absolute",
+                        top = -12,
+                        right = 40,
+                        width = 22,
+                        height = 40,
+                        backgroundColor = { 210, 170, 140, 255 },
+                        borderRadius = 10,
+                    },
+                }
+            },
         }
     }
 
-    -- 广告覆盖层
-    adOverlay = PhoneUI.CreateAdOverlay()
+    -- 手机框架（全屏遮罩 + 滑动容器）
+    phoneRoot = UI.Panel {
+        id = "phoneFrame",
+        visible = false,
+        position = "absolute",
+        top = 0, left = 0, right = 0, bottom = 0,
+        justifyContent = "flex-end",
+        alignItems = "center",
+        backgroundColor = { 0, 0, 0, 0 },  -- 初始透明，动画时渐变
+        children = {
+            phoneSlider,
+        }
+    }
 
-    return phoneRoot, adOverlay
+    return phoneRoot
 end
 
 function PhoneUI.CreateStatusBar()
@@ -548,7 +607,7 @@ function PhoneUI.CreateFakeAppPage()
 end
 
 function PhoneUI.CreateAdOverlay()
-    local overlay = UI.Panel {
+    adOverlay = UI.Panel {
         id = "adOverlay",
         visible = false,
         position = "absolute",
@@ -609,29 +668,107 @@ function PhoneUI.CreateAdOverlay()
             },
         }
     }
-    return overlay
+    return adOverlay
 end
 
 -- === 公开 API ===
 
+-- 缓动函数：easeOutBack（带回弹，像拿起手机的感觉）
+local function easeOutBack(t)
+    local c1 = 1.70158
+    local c3 = c1 + 1
+    return 1 + c3 * math.pow(t - 1, 3) + c1 * math.pow(t - 1, 2)
+end
+
+-- 缓动函数：easeInBack（收回时加速）
+local function easeInCubic(t)
+    return t * t * t
+end
+
 function PhoneUI.Open()
-    if phoneRoot then
-        phoneRoot:SetVisible(true)
-        isVisible = true
-        PhoneUI.ShowHome()
+    if not phoneRoot then return end
+    phoneRoot:SetVisible(true)
+    isVisible = true
+    animState = "sliding_in"
+    animProgress = 0
+    animOffset = 600
+    PhoneUI.ShowHome()
+    -- 立即更新一次位置
+    if phoneSlider then
+        phoneSlider:SetStyle({ bottom = math.floor(-animOffset) })
     end
 end
 
 function PhoneUI.Close()
-    if phoneRoot then
-        phoneRoot:SetVisible(false)
-        isVisible = false
-        currentApp = nil
-    end
+    if not phoneRoot then return end
+    if animState == "hidden" or animState == "sliding_out" then return end
+    animState = "sliding_out"
+    animProgress = 0
+    currentApp = nil
 end
 
 function PhoneUI.IsOpen()
     return isVisible
+end
+
+function PhoneUI.IsAnimating()
+    return animState == "sliding_in" or animState == "sliding_out"
+end
+
+--- 立即关闭（无动画，用于切换到扫码等需要立即关闭的场景）
+function PhoneUI.CloseInstant()
+    if not phoneRoot then return end
+    animState = "hidden"
+    animProgress = 0
+    animOffset = 600
+    isVisible = false
+    currentApp = nil
+    phoneRoot:SetVisible(false)
+    if phoneSlider then
+        phoneSlider:SetStyle({ bottom = -600 })
+    end
+end
+
+--- 每帧更新动画（必须在 main.lua 的 Update 中调用）
+function PhoneUI.UpdateAnim(dt)
+    if animState == "sliding_in" then
+        animProgress = animProgress + dt / ANIM_DURATION
+        if animProgress >= 1.0 then
+            animProgress = 1.0
+            animState = "visible"
+        end
+        local t = easeOutBack(animProgress)
+        animOffset = 600 * (1 - t)  -- 从600→0
+        if phoneSlider then
+            phoneSlider:SetStyle({ bottom = math.floor(-animOffset) })
+        end
+        -- 背景渐暗
+        local alpha = math.floor(150 * animProgress)
+        if phoneRoot then
+            phoneRoot:SetBackgroundColor({ 0, 0, 0, alpha })
+        end
+
+    elseif animState == "sliding_out" then
+        animProgress = animProgress + dt / (ANIM_DURATION * 0.7)  -- 收回稍快
+        if animProgress >= 1.0 then
+            animProgress = 1.0
+            animState = "hidden"
+            isVisible = false
+            if phoneRoot then
+                phoneRoot:SetVisible(false)
+            end
+        end
+        local t = easeInCubic(animProgress)
+        animOffset = 600 * t  -- 从0→600
+        if phoneSlider then
+            phoneSlider:SetStyle({ bottom = math.floor(-animOffset) })
+        end
+        -- 背景渐亮
+        local alpha = math.floor(150 * (1 - animProgress))
+        if phoneRoot then
+            phoneRoot:SetBackgroundColor({ 0, 0, 0, alpha })
+        end
+    end
 end
 
 function PhoneUI.GetCurrentApp()
@@ -815,6 +952,115 @@ end
 --- 是否正在显示假应用
 function PhoneUI.IsFakeAppVisible()
     return fakeAppPanel ~= nil and fakeAppPanel:IsVisible()
+end
+
+-- ====================================================================
+-- 低电量警告弹窗
+-- ====================================================================
+local lowBatteryOverlay = nil
+
+function PhoneUI.CreateLowBatteryOverlay()
+    lowBatteryOverlay = UI.Panel {
+        id = "lowBatteryOverlay",
+        visible = false,
+        position = "absolute",
+        top = 0, left = 0, right = 0, bottom = 0,
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundColor = { 0, 0, 0, 180 },
+        children = {
+            UI.Panel {
+                width = 240,
+                padding = 16,
+                backgroundColor = { 40, 10, 10, 255 },
+                borderRadius = 12,
+                borderWidth = 2,
+                borderColor = { 255, 60, 60, 255 },
+                alignItems = "center",
+                gap = 10,
+                children = {
+                    -- 电量图标（红色）
+                    UI.Label {
+                        text = "⚠",
+                        fontSize = 28,
+                        fontColor = { 255, 50, 50, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "电量不足",
+                        fontSize = 16,
+                        fontColor = { 255, 80, 80, 255 },
+                        textAlign = "center",
+                        fontWeight = "bold",
+                    },
+                    UI.Label {
+                        id = "lowBatteryMsg",
+                        text = "手机将在 30 秒内关机",
+                        fontSize = 12,
+                        fontColor = { 255, 200, 200, 255 },
+                        textAlign = "center",
+                        whiteSpace = "normal",
+                    },
+                    -- 倒计时显示
+                    UI.Label {
+                        id = "lowBatteryCountdown",
+                        text = "30",
+                        fontSize = 36,
+                        fontColor = { 255, 50, 50, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "快去找充电的地方！",
+                        fontSize = 11,
+                        fontColor = { 200, 200, 200, 255 },
+                        textAlign = "center",
+                    },
+                    -- 关闭按钮
+                    UI.Button {
+                        text = "我知道了",
+                        fontSize = 12,
+                        width = "80%",
+                        height = 30,
+                        backgroundColor = { 180, 40, 40, 255 },
+                        borderRadius = 6,
+                        onClick = function()
+                            PhoneUI.HideLowBatteryWarning()
+                        end,
+                    },
+                }
+            }
+        }
+    }
+    return lowBatteryOverlay
+end
+
+--- 显示低电量警告
+function PhoneUI.ShowLowBatteryWarning()
+    if lowBatteryOverlay then
+        lowBatteryOverlay:SetVisible(true)
+    end
+end
+
+--- 隐藏低电量警告
+function PhoneUI.HideLowBatteryWarning()
+    if lowBatteryOverlay then
+        lowBatteryOverlay:SetVisible(false)
+    end
+end
+
+--- 更新倒计时数字
+function PhoneUI.UpdateLowBatteryCountdown(seconds)
+    if lowBatteryOverlay then
+        local label = lowBatteryOverlay:FindById("lowBatteryCountdown")
+        if label then
+            label:SetText(string.format("%d", math.ceil(seconds)))
+        end
+    end
+end
+
+--- 低电量警告是否可见
+function PhoneUI.IsLowBatteryVisible()
+    return lowBatteryOverlay ~= nil and lowBatteryOverlay:IsVisible()
 end
 
 return PhoneUI

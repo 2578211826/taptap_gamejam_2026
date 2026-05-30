@@ -50,6 +50,10 @@ local COUNTER_X = 750      -- 柜台位置（右侧）
 local doorWarningOpen = false    -- 是否显示离店警告面板
 local doorWarningChoice = 1      -- 1=回去付款, 2=硬闯
 
+-- 鼠标 hover/pressed 状态（由 main.lua 驱动）
+local shopHoveredBtn = nil       -- 当前 hover 的按钮id
+local shopPressedBtn = nil       -- 当前按下的按钮id
+
 -- 货架定义（x位置, 宽度, 类别标签）
 local shelves = {
     { x = 180, w = 100, label = "零食饮料", category = "snack" },
@@ -556,6 +560,84 @@ end
 
 function ShopScene.CloseDoorWarning()
     doorWarningOpen = false
+end
+
+-- ====================================================================
+-- 鼠标点击支持（由 main.lua 调用）
+-- ====================================================================
+
+--- 设置 hover/pressed 状态（每帧由 main.lua 驱动）
+function ShopScene.SetHoverState(hovered, pressed)
+    shopHoveredBtn = hovered
+    shopPressedBtn = pressed
+end
+
+--- 判断逻辑坐标(mx,my)处有什么按钮，返回按钮id或nil
+function ShopScene.GetButtonAtPosition(mx, my)
+    -- 门口警告面板按钮
+    if doorWarningOpen then
+        local panelW = 320
+        local panelH = 180
+        local panelX = (screenW - panelW) / 2
+        local panelY = (screenH - panelH) / 2
+        local optStartY = panelY + 100
+        for i = 1, 2 do
+            local oy = optStartY + (i - 1) * 32
+            local btnLeft = panelX + 30
+            local btnRight = panelX + panelW - 30
+            if mx >= btnLeft and mx <= btnRight and my >= oy and my <= oy + 28 then
+                return "shop_warning_" .. i
+            end
+        end
+        return nil  -- 面板打开时，其他按钮不可触达
+    end
+
+    -- 柜台对话面板按钮
+    if counterOpen and #counterOptions > 0 then
+        local panelW = 340
+        local panelH = 200
+        local panelX = (screenW - panelW) / 2
+        local panelY = (screenH - panelH) / 2
+        local optStartY = panelY + panelH - 20 - #counterOptions * 30
+        for i = 1, #counterOptions do
+            local oy = optStartY + (i - 1) * 30
+            local btnLeft = panelX + 20
+            local btnRight = panelX + panelW - 20
+            if mx >= btnLeft and mx <= btnRight and my >= oy and my <= oy + 26 then
+                return "shop_counter_" .. i
+            end
+        end
+        return nil  -- 面板打开时，其他按钮不可触达
+    end
+
+    return nil
+end
+
+--- 执行按钮点击
+function ShopScene.ExecuteButtonClick(btnId)
+    if not btnId then return false end
+
+    -- 门口警告按钮
+    if btnId:sub(1, 13) == "shop_warning_" then
+        local idx = tonumber(btnId:sub(14))
+        if idx then
+            doorWarningChoice = idx
+            ShopScene.DoorWarningConfirm()
+        end
+        return true
+    end
+
+    -- 柜台对话按钮
+    if btnId:sub(1, 13) == "shop_counter_" then
+        local idx = tonumber(btnId:sub(14))
+        if idx and idx >= 1 and idx <= #counterOptions then
+            counterSelectedIdx = idx
+            ShopScene.CounterConfirm()
+        end
+        return true
+    end
+
+    return false
 end
 
 -- ====================================================================
@@ -1158,16 +1240,31 @@ function RenderCounterPanel(nvgCtx)
         nvgText(nvgCtx, panelX + 20, panelY + 52 + (i - 1) * 18, line)
     end
 
-    -- 选项列表
+    -- 选项列表（支持鼠标 hover/pressed 三态）
     local optStartY = panelY + panelH - 20 - #counterOptions * 30
     for i, opt in ipairs(counterOptions) do
         local oy = optStartY + (i - 1) * 30
+        local btnId = "shop_counter_" .. i
         local isSelected = (i == counterSelectedIdx)
+        local isHovered = (shopHoveredBtn == btnId)
+        local isPressed = (shopPressedBtn == btnId) and isHovered
+
+        -- 鼠标 hover 时自动更新键盘选中索引
+        if isHovered then
+            counterSelectedIdx = i
+            isSelected = true
+        end
 
         -- 选项背景
         nvgBeginPath(nvgCtx)
         nvgRoundedRect(nvgCtx, panelX + 20, oy, panelW - 40, 26, 5)
-        if isSelected then
+        if isPressed then
+            nvgFillColor(nvgCtx, nvgRGBA(70, 100, 160, 250))
+            nvgFill(nvgCtx)
+            nvgStrokeColor(nvgCtx, nvgRGBA(130, 200, 255, 255))
+            nvgStrokeWidth(nvgCtx, 2)
+            nvgStroke(nvgCtx)
+        elseif isSelected or isHovered then
             nvgFillColor(nvgCtx, nvgRGBA(50, 70, 120, 230))
             nvgFill(nvgCtx)
             nvgStrokeColor(nvgCtx, nvgRGBA(100, 180, 255, 220))
@@ -1181,7 +1278,7 @@ function RenderCounterPanel(nvgCtx)
         -- 选项文字
         nvgFontSize(nvgCtx, 12)
         nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(nvgCtx, isSelected and nvgRGBA(255, 255, 255, 255) or nvgRGBA(180, 180, 200, 255))
+        nvgFillColor(nvgCtx, (isSelected or isHovered) and nvgRGBA(255, 255, 255, 255) or nvgRGBA(180, 180, 200, 255))
         nvgText(nvgCtx, panelX + panelW / 2, oy + 13, opt.text)
     end
 
@@ -1234,16 +1331,32 @@ function RenderDoorWarningPanel(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(200, 180, 160, 220))
     nvgText(nvgCtx, panelX + panelW / 2, panelY + 72, "直接离开的话店员会追出来哦")
 
-    -- 两个选项
+    -- 两个选项（支持鼠标 hover/pressed 三态）
     local options = { "回去付款", "硬闯（会被追）" }
     local optStartY = panelY + 100
     for i = 1, 2 do
         local oy = optStartY + (i - 1) * 32
+        local btnId = "shop_warning_" .. i
         local isSelected = (i == doorWarningChoice)
+        local isHovered = (shopHoveredBtn == btnId)
+        local isPressed = (shopPressedBtn == btnId) and isHovered
+
+        -- 鼠标 hover 时自动更新键盘选中索引
+        if isHovered then
+            doorWarningChoice = i
+            isSelected = true
+        end
 
         nvgBeginPath(nvgCtx)
         nvgRoundedRect(nvgCtx, panelX + 30, oy, panelW - 60, 28, 6)
-        if isSelected then
+        if isPressed then
+            -- 按下态：更深背景 + 亮边框
+            nvgFillColor(nvgCtx, nvgRGBA(120, 50, 50, 250))
+            nvgFill(nvgCtx)
+            nvgStrokeColor(nvgCtx, nvgRGBA(255, 160, 100, 255))
+            nvgStrokeWidth(nvgCtx, 2)
+            nvgStroke(nvgCtx)
+        elseif isSelected or isHovered then
             nvgFillColor(nvgCtx, nvgRGBA(80, 40, 40, 230))
             nvgFill(nvgCtx)
             nvgStrokeColor(nvgCtx, nvgRGBA(255, 120, 80, 220))
@@ -1256,7 +1369,7 @@ function RenderDoorWarningPanel(nvgCtx)
 
         nvgFontSize(nvgCtx, 12)
         nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(nvgCtx, isSelected and nvgRGBA(255, 255, 255, 255) or nvgRGBA(180, 160, 160, 255))
+        nvgFillColor(nvgCtx, (isSelected or isHovered) and nvgRGBA(255, 255, 255, 255) or nvgRGBA(180, 160, 160, 255))
         nvgText(nvgCtx, panelX + panelW / 2, oy + 14, options[i])
     end
 

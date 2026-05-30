@@ -38,6 +38,11 @@ local chaseDistance = 0        -- 已追击距离
 local chaseGiveUpDist = 0     -- 放弃距离（像素）
 local chaseTimer = 0          -- 追击计时（用于动画）
 
+-- 低电量警告状态
+local lowBatteryWarningShown = false   -- 2%电量警告是否已弹出
+local lowBatteryCountdown = 30         -- 关机倒计时（秒）
+local lowBatteryActive = false         -- 倒计时是否激活
+
 -- 鼠标状态（逻辑坐标，与NanoVG绘制坐标一致）
 local mouseLogX, mouseLogY = 0, 0
 local mouseDpr = 1.0
@@ -150,7 +155,7 @@ end
 -- UI 构建
 -- ====================================================================
 function CreateGameUI()
-    local phonePanel, adPanel = PhoneUI.CreateUI()
+    local phonePanel = PhoneUI.CreateUI()
 
     uiRoot = UI.Panel {
         id = "gameRoot",
@@ -162,11 +167,9 @@ function CreateGameUI()
             CreateHUD(),
             -- Layer 2: 常驻操作提示（底部）
             CreateActionHints(),
-            -- Layer 3: 手机界面
+            -- Layer 3: 手机界面（广告和低电量覆盖层已内置在手机面板中）
             phonePanel,
-            -- Layer 4: 广告覆盖（在手机之上）
-            adPanel,
-            -- Layer 5: 消息框（在手机和广告之上，确保始终可见）
+            -- Layer 4: 消息框（在手机之上，确保始终可见）
             CreateMessageBox(),
             -- Layer 6: 结局面板
             CreateEndingPanel(),
@@ -503,6 +506,14 @@ function StartGame()
     slotResult = nil
     chaseActive = false
 
+    -- 重置低电量和广告状态
+    lowBatteryWarningShown = false
+    lowBatteryCountdown = 30
+    lowBatteryActive = false
+    PhoneUI.HideLowBatteryWarning()
+    PhoneUI.HideAd()
+    PhoneUI.Close()
+
     GameState.Reset(gs)
     GameState.RandomizeWorld(gs)
     gs.phase = Config.State.PLAYING
@@ -611,6 +622,50 @@ function UpdateChase(dt)
     end
 end
 
+-- ====================================================================
+-- 低电量 HUD 倒计时（屏幕顶部居中红色横幅）
+-- ====================================================================
+function RenderLowBatteryHUD(vg, sw)
+    local barH = 36
+    local barW = 280
+    local barX = (sw - barW) / 2
+    local barY = 6
+
+    -- 闪烁效果
+    local pulse = math.abs(math.sin(gs.totalTime * 4))
+    local bgAlpha = math.floor(180 + 75 * pulse)
+
+    -- 背景横幅
+    nvgBeginPath(vg)
+    nvgRoundedRect(vg, barX, barY, barW, barH, 8)
+    nvgFillColor(vg, nvgRGBA(140, 20, 20, bgAlpha))
+    nvgFill(vg)
+    -- 红色边框
+    nvgStrokeColor(vg, nvgRGBA(255, 60, 60, 200))
+    nvgStrokeWidth(vg, 1.5)
+    nvgStroke(vg)
+
+    -- 左侧警告图标
+    nvgFontFace(vg, "sans")
+    nvgFontSize(vg, 14)
+    nvgFillColor(vg, nvgRGBA(255, 220, 50, 255))
+    nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
+    nvgText(vg, barX + 10, barY + barH / 2, "⚠")
+
+    -- 文字：电量不足
+    nvgFontSize(vg, 12)
+    nvgFillColor(vg, nvgRGBA(255, 200, 200, 255))
+    nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
+    nvgText(vg, barX + 28, barY + barH / 2, "电量不足 · 关机倒计时")
+
+    -- 右侧倒计时数字
+    local secs = math.ceil(lowBatteryCountdown)
+    nvgFontSize(vg, 18)
+    nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
+    nvgTextAlign(vg, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)
+    nvgText(vg, barX + barW - 12, barY + barH / 2, string.format("%ds", secs))
+end
+
 function RenderChase(vg, sw, sh)
     -- 渲染店主（在城市场景之上）
     local shopkeeperScreenX = chaseShopkeeperX - gs.cameraX
@@ -673,7 +728,12 @@ function TriggerEnding(endingType, reason)
     gs.ending = endingType
     gs.endingReason = reason
 
-    PhoneUI.Close()
+    -- 停止低电量倒计时并隐藏警告
+    lowBatteryActive = false
+    PhoneUI.HideLowBatteryWarning()
+
+    PhoneUI.CloseInstant()
+    gs.phoneOpen = false
 
     local panel = uiRoot:FindById("endingPanel")
     if not panel then return end
@@ -791,8 +851,8 @@ end
 -- ====================================================================
 function HandlePhoneEvent(event)
     if event == "phone_close" then
-        gs.phoneOpen = false
-        gs.phase = Config.State.PLAYING
+        -- 动画结束后会自动切回 PLAYING（见 HandleUpdate 中的检查）
+        -- 这里不立即改状态，让滑出动画播放完
 
     elseif event == "app_open" then
         gs.battery = gs.battery - Config.Battery.CostOpenApp
@@ -807,8 +867,8 @@ function HandlePhoneEvent(event)
     elseif event == "scan_qr" then
         -- 扫码逻辑 - 启动扫码小游戏
         if gs.nearbyInteractable and gs.nearbyInteractable.type == "powerbank" then
-            -- 关闭手机 UI，进入扫码小游戏
-            PhoneUI.Close()
+            -- 立即关闭手机 UI（无动画），进入扫码小游戏
+            PhoneUI.CloseInstant()
             gs.phoneOpen = false
             gs.phase = Config.State.SCANNING
             ScanMiniGame.Start(gs.battery, HandleScanResult)
@@ -957,6 +1017,13 @@ function CloseSlotGame()
     slotPhase = "idle"
     slotResult = nil
     gs.phase = Config.State.PLAYING
+    -- 如果倒计时仍激活，回到 PLAYING 后自动弹出手机警告
+    if lowBatteryActive and gs.battery > 0 then
+        gs.phoneOpen = true
+        gs.phase = Config.State.PHONE
+        PhoneUI.Open()
+        PhoneUI.ShowLowBatteryWarning()
+    end
 end
 
 function SlotInsertCoin()
@@ -1087,6 +1154,17 @@ end
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
+    -- 手机滑入/滑出动画（在所有状态下都要更新）
+    PhoneUI.UpdateAnim(dt)
+
+    -- 手机滑出动画完成 → 切回 PLAYING
+    if gs.phoneOpen and not PhoneUI.IsOpen() and not PhoneUI.IsAnimating() then
+        gs.phoneOpen = false
+        if gs.phase == Config.State.PHONE then
+            gs.phase = Config.State.PLAYING
+        end
+    end
+
     -- 菜单/结局/游戏结束 不更新
     if gs.phase == Config.State.MENU or gs.phase == Config.State.ENDING or gs.phase == Config.State.GAMEOVER then
         return
@@ -1133,6 +1211,33 @@ function HandleUpdate(eventType, eventData)
     end
     gs.battery = gs.battery - drain * dt
     CheckBattery()
+
+    -- 低电量警告检测：电量 <= 2% 时激活倒计时
+    if gs.battery <= 2 and gs.battery > 0 and not lowBatteryWarningShown then
+        lowBatteryWarningShown = true
+        lowBatteryActive = true
+        lowBatteryCountdown = 30
+        -- 如果当前在自由行走状态，自动弹出手机并显示警告
+        -- 否则（老虎机/扫码/商店等）只激活 HUD 倒计时，不打断当前活动
+        if gs.phase == Config.State.PLAYING then
+            gs.phoneOpen = true
+            gs.phase = Config.State.PHONE
+            PhoneUI.Open()
+            PhoneUI.ShowLowBatteryWarning()
+        end
+    end
+
+    -- 低电量倒计时（激活后每帧递减）
+    if lowBatteryActive and gs.battery > 0 then
+        lowBatteryCountdown = lowBatteryCountdown - dt
+        PhoneUI.UpdateLowBatteryCountdown(lowBatteryCountdown)
+        if lowBatteryCountdown <= 0 then
+            lowBatteryCountdown = 0
+            lowBatteryActive = false
+            gs.battery = 0
+            TriggerEnding(Config.Ending.NO_BATTERY, "手机关机")
+        end
+    end
 
     -- 更新电量 UI
     UpdateBatteryUI()
@@ -1454,10 +1559,11 @@ function HandleKeyDown(eventType, eventData)
     -- Tab 键打开/关闭手机
     if key == KEY_TAB then
         if gs.phoneOpen then
+            -- 触发滑出动画，状态在动画完成后切换
             PhoneUI.Close()
-            gs.phoneOpen = false
-            gs.phase = Config.State.PLAYING
-        else
+            -- 关闭手机时隐藏低电量警告弹窗（倒计时继续）
+            PhoneUI.HideLowBatteryWarning()
+        elseif not PhoneUI.IsAnimating() then
             gs.phoneOpen = true
             gs.phase = Config.State.PHONE
             gs.battery = gs.battery - Config.Battery.CostOpenPhone
@@ -1465,8 +1571,11 @@ function HandleKeyDown(eventType, eventData)
             PhoneUI.Open()
             CheckBattery()
 
-            -- 打开时有概率弹广告
-            if EventSystem.ShouldShowAd(gs.battery) then
+            -- 打开时如果倒计时激活，重新显示低电量警告
+            if lowBatteryActive then
+                PhoneUI.ShowLowBatteryWarning()
+            elseif EventSystem.ShouldShowAd(gs.battery) then
+                -- 打开时有概率弹广告（仅在无低电量警告时）
                 local ad = EventSystem.GetRandomAd()
                 PhoneUI.ShowAd(ad.title, ad.body)
                 gs.stats.adWatchCount = gs.stats.adWatchCount + 1
@@ -1504,6 +1613,11 @@ function HandleMouseMove(eventType, eventData)
 
     -- 更新 hover 状态
     hoveredBtn = GetButtonAtPosition(mouseLogX, mouseLogY)
+
+    -- 同步 hover/pressed 状态给 ShopScene（用于按钮视觉反馈）
+    if gs.phase == Config.State.SHOP then
+        ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+    end
 end
 
 function HandleMouseUp(eventType, eventData)
@@ -1516,6 +1630,11 @@ function HandleMouseUp(eventType, eventData)
         ExecuteButtonClick(pressedBtn)
     end
     pressedBtn = nil
+
+    -- 清除 ShopScene 的 pressed 状态
+    if gs.phase == Config.State.SHOP then
+        ShopScene.SetHoverState(hoveredBtn, nil)
+    end
 end
 
 function HandleMouseDown(eventType, eventData)
@@ -1539,7 +1658,34 @@ function HandleMouseDown(eventType, eventData)
     local btn = GetButtonAtPosition(mouseLogX, mouseLogY)
     if btn then
         pressedBtn = btn
+        -- 同步 pressed 状态给 ShopScene
+        if gs.phase == Config.State.SHOP then
+            ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+        end
         return
+    end
+
+    -- 点击商店面板外 → 关闭面板
+    if gs.phase == Config.State.SHOP then
+        if ShopScene.IsDoorWarningOpen() then
+            local panelW = 320
+            local panelH = 180
+            local panelX = (screenW - panelW) / 2
+            local panelY = (screenH - panelH) / 2
+            if mouseLogX < panelX or mouseLogX > panelX + panelW or mouseLogY < panelY or mouseLogY > panelY + panelH then
+                ShopScene.CloseDoorWarning()
+                return
+            end
+        elseif ShopScene.IsCounterOpen() then
+            local panelW = 340
+            local panelH = 200
+            local panelX = (screenW - panelW) / 2
+            local panelY = (screenH - panelH) / 2
+            if mouseLogX < panelX or mouseLogX > panelX + panelW or mouseLogY < panelY or mouseLogY > panelY + panelH then
+                ShopScene.CloseCounter()
+                return
+            end
+        end
     end
 
     -- 点击面板外 → 关闭面板
@@ -1568,6 +1714,16 @@ end
 
 -- 判断逻辑坐标(mx,my)处有什么按钮
 function GetButtonAtPosition(mx, my)
+    -- 商店场景面板按钮（门口警告、柜台对话）
+    if gs.phase == Config.State.SHOP then
+        local shopBtn = ShopScene.GetButtonAtPosition(mx, my)
+        if shopBtn then return shopBtn end
+        -- 商店面板打开时不检测其他按钮
+        if ShopScene.IsDoorWarningOpen() or ShopScene.IsCounterOpen() then
+            return nil
+        end
+    end
+
     -- 老虎机面板按钮
     if gs.phase == Config.State.EVENT and slotGameOpen then
         local panelW = 340
@@ -1616,6 +1772,13 @@ end
 
 -- 执行按钮点击动作
 function ExecuteButtonClick(btnId)
+    if not btnId then return end
+
+    -- 商店场景按钮（门口警告、柜台对话）
+    if ShopScene.ExecuteButtonClick(btnId) then
+        return
+    end
+
     if btnId == "slot_action" then
         if slotPhase == "idle" then
             SlotInsertCoin()
@@ -1626,7 +1789,7 @@ function ExecuteButtonClick(btnId)
         end
     elseif btnId == "slot_close" then
         CloseSlotGame()
-    elseif btnId and btnId:sub(1, 8) == "npc_opt_" then
+    elseif btnId:sub(1, 8) == "npc_opt_" then
         local idx = tonumber(btnId:sub(9))
         if idx and idx >= 1 and idx <= #npcDialogueOptions then
             npcDialogueChoice = idx
@@ -2016,7 +2179,7 @@ function RenderSlotGame(vg, sw, sh)
         -- 绘制可见的符号（中间行 + 上下各一行，共3行）
         local centerY = ry + reelH / 2
         for row = -1, 1 do
-            local symOffset = baseIdx + row + 1  -- +1 因为中间行对应的是下一个即将到达中线的符号
+            local symOffset = baseIdx + row
             local symIdx = (symOffset % SLOT_NUM_SYMBOLS) + 1
             local sym = SLOT_SYMBOLS[symIdx]
             local col = SLOT_COLORS[symIdx]
@@ -2220,6 +2383,11 @@ function HandleRender(eventType, eventData)
         -- 老虎机博弈面板
         if slotGameOpen then
             RenderSlotGame(nvg, screenW, screenH)
+        end
+
+        -- 低电量倒计时 HUD（屏幕顶部居中，始终显示）
+        if lowBatteryActive then
+            RenderLowBatteryHUD(nvg, screenW)
         end
     end
 

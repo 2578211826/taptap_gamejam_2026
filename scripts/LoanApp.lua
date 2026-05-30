@@ -16,9 +16,28 @@ local LoanApp = {}
 -- ====================================================================
 -- 常量
 -- ====================================================================
-local PHONE_NUMBER = "13812346752"  -- 玩家手机号（完整）
-local PHONE_DISPLAY = "138****6752" -- HUD显示（脱敏）
+-- 每局随机生成12位手机号（比真实手机号多1位，防止撞号）
+local PHONE_NUMBER = ""             -- 运行时生成
+local PHONE_DISPLAY = ""            -- HUD显示（脱敏）
 local VERIFY_CODE = "852917"        -- 正确的验证码
+
+-- 生成随机12位手机号
+local function GenerateRandomPhone()
+    -- 前缀用138/139/150/158/186/187等常见开头 + 多1位
+    local prefixes = { "138", "139", "150", "158", "186", "187", "135", "136" }
+    math.randomseed(os.time())
+    local prefix = prefixes[math.random(1, #prefixes)]
+    local digits = ""
+    for i = 1, 9 do  -- 3位前缀 + 9位随机 = 12位总共
+        digits = digits .. tostring(math.random(0, 9))
+    end
+    return prefix .. digits
+end
+
+-- 初始化手机号
+PHONE_NUMBER = GenerateRandomPhone()
+-- 脱敏显示：前3位 + **** + 后4位（共12位: 3+4+4+1 → 显示为 "138*****6752" 保护中间5位）
+PHONE_DISPLAY = string.sub(PHONE_NUMBER, 1, 3) .. "*****" .. string.sub(PHONE_NUMBER, 9, 12)
 local LOAN_LIMIT = 400              -- 贷款额度上限
 local LOAN_RATE = "648%"            -- 月利率（荒诞）
 local RESEND_COOLDOWN = 59          -- 重新发送冷却（秒）
@@ -219,7 +238,7 @@ end
 --- 处理数字键输入
 function LoanApp.OnDigitInput(digit)
     if state == "input_phone" then
-        if #phoneInput < 11 then
+        if #phoneInput < 12 then
             phoneInput = phoneInput .. digit
         end
     elseif state == "sms_sent" then
@@ -282,8 +301,8 @@ end
 
 function LoanApp.SubmitPhone()
     DiagLog.Log("贷款", "[触发] SubmitPhone() 输入=" .. phoneInput .. " 长度=" .. #phoneInput)
-    if #phoneInput ~= 11 then
-        errorMsg = "请输入11位手机号"
+    if #phoneInput ~= 12 then
+        errorMsg = "请输入12位手机号"
         errorTimer = 2.5
         DiagLog.Log("贷款", "[拦截] 手机号位数不足")
         return
@@ -491,6 +510,23 @@ function LoanApp.Update(dt)
         end
         if adDismissable and not wasDismissable then
             DiagLog.Log("贷款", "[运行] 广告可关闭了 state=" .. state .. " 剩余=" .. string.format("%.1f", adTimer) .. "s")
+        end
+        -- 广告时间耗尽，自动推进到下一状态（防止手机关闭后卡死在ad状态）
+        if adTimer <= 0 then
+            adTimer = 0
+            adDismissable = false
+            if onHideAd then onHideAd() end
+            if state == "ad_before" then
+                state = "input_phone"
+                DiagLog.Log("贷款", "[自动] 广告超时自动关闭 → state=input_phone")
+            elseif state == "ad_after_code" then
+                state = "face_game"
+                LoanApp.InitFaceGame()
+                DiagLog.Log("贷款", "[自动] 广告超时自动关闭 → state=face_game")
+            elseif faceAdPending then
+                LoanApp.ResumeFaceGame()
+                DiagLog.Log("贷款", "[自动] 广告超时自动关闭 → 恢复人脸音游")
+            end
         end
     end
 

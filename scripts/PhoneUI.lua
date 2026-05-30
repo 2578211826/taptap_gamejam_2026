@@ -1358,4 +1358,33 @@ function PhoneUI.IsLowBatteryVisible()
     return lowBatteryOverlay ~= nil and lowBatteryOverlay:IsVisible()
 end
 
+--- 获取手机内容区域的屏幕逻辑坐标（用于 NanoVG overlay 裁剪）
+--- @param screenW number 屏幕逻辑宽度
+--- @param screenH number 屏幕逻辑高度
+--- @return table|nil {x, y, w, h} 手机内容区域坐标，手机不可见时返回nil
+function PhoneUI.GetPhoneContentRect(screenW, screenH)
+    if not isVisible or animState == "hidden" then return nil end
+    -- 手机布局常量:
+    --   phoneSlider: bottom=0 (visible), height=620, full width, alignItems=center, justifyContent=flex-end
+    --   phoneBody: width=280, height=480, padding=8
+    --   statusBar: height=24
+    --   phoneContent: flexGrow=1 (fills remaining)
+    --   bottomButtons: height=32
+    --   handGrip: height=120 (below phoneBody)
+    -- 计算（phoneSlider justifyContent=flex-end，内容从底部向上排列）:
+    --   handGrip bottom = screenH - animOffset
+    --   phoneBody bottom = screenH - animOffset - 120
+    --   phoneBody top = screenH - animOffset - 120 - 480 = screenH - animOffset - 600
+    local phoneBodyTop = screenH - animOffset - 600
+    local phoneBodyLeft = (screenW - 280) / 2
+    -- phoneContent 在 phoneBody 内部:
+    --   top offset: padding(8) + statusBar(24) = 32
+    --   bottom offset: padding(8) + bottomButtons(32) = 40
+    local contentX = phoneBodyLeft + 8
+    local contentY = phoneBodyTop + 8 + 24
+    local contentW = 280 - 16  -- 264
+    local contentH = 480 - 8 - 24 - 32 - 8  -- 408
+    return { x = contentX, y = contentY, w = contentW, h = contentH }
+end
+
 return PhoneUI

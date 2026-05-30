@@ -1,0 +1,233 @@
+================================================================================
+                    音频集成交接文档 - 完蛋了手机没电了
+================================================================================
+生成日期: 2026-05-30
+总计: 5 首 BGM + 42 个音效 = 47 个文件
+目录: assets/audio/music/  (BGM)
+      assets/audio/sfx/    (音效)
+
+代码中资源路径写法:
+  cache:GetResource("Sound", "audio/music/bgm_city.ogg")
+  cache:GetResource("Sound", "audio/sfx/sfx_phone_open.ogg")
+
+================================================================================
+一、BGM 背景音乐 (5首，全部循环播放)
+================================================================================
+
+文件名                    | 场景              | 音量  | 切换方式
+--------------------------|-------------------|-------|------------------
+bgm_city.ogg   (~96s)    | PLAYING/MENU 状态 | 0.35  | 默认BGM，淡入淡出
+bgm_shop.ogg   (~172s)   | SHOP 状态         | 0.30  | 0.5s crossfade
+bgm_chase.ogg  (~152s)   | CHASE 状态        | 0.45  | 立即切换(紧迫感)
+bgm_phone.ogg  (~255s)   | PHONE 状态        | 0.25  | 0.5s crossfade
+bgm_slot.ogg   (~111s)   | EVENT(老虎机)     | 0.40  | 0.5s crossfade
+
+BGM 电量联动规则:
+  电量 > 3%   → pitch = 1.0, gain = 正常
+  电量 2%~3%  → pitch = 1.10, gain = 正常 (加速感)
+  电量 1%~2%  → pitch = 1.15, gain × 0.5 (闷声)
+  电量 < 1%   → pitch = 1.20, gain × 0.15 (几乎听不到)
+  电量 = 0%   → 停止所有BGM
+
+结局时: 停止BGM → 播放对应结局音效
+
+================================================================================
+二、音效 - 手机系统/UI (16个)
+================================================================================
+
+文件名                    | 触发时机                      | 音量 | 备注
+--------------------------|-------------------------------|------|------------------
+sfx_phone_open.ogg       | 按Tab打开手机                  | 0.7  |
+sfx_phone_close.ogg      | 按Tab收起手机                  | 0.6  |
+sfx_app_tap.ogg          | 点击手机内App图标(地图/扫描/支付)| 0.7  |
+sfx_btn_click.ogg        | 通用按钮点击(所有NanoVG按钮)    | 0.6  |
+sfx_btn_hover.ogg        | 鼠标悬停按钮(hoveredBtn变化时)  | 0.2  | 极轻
+sfx_ad_popup.ogg         | AdSystem触发广告弹出            | 0.8  | 故意刺耳
+sfx_ad_close.ogg         | 点击广告关闭按钮               | 0.5  |
+sfx_ad_misclick.ogg      | 误触广告大按钮(ad_misclick事件) | 0.7  |
+sfx_battery_warning.ogg  | 电量首次降到2%                 | 1.0  | 只触发一次
+sfx_battery_critical.ogg | 电量首次降到1%                 | 1.0  | 只触发一次
+sfx_phone_shutdown.ogg   | 电量归零,手机关机               | 1.0  | 最高优先级,停止所有其他音频后播放
+sfx_notification.ogg     | 贷款流程中SMS验证码弹入         | 0.8  |
+sfx_typing.ogg           | 贷款流程输入数字(每次按键)      | 0.5  | cooldown >= 0.1s
+sfx_input_confirm.ogg    | 贷款流程按Enter确认             | 0.7  |
+sfx_loan_approved.ogg    | 贷款审批通过,金额到账           | 0.8  |
+sfx_download_tick.ogg    | 假App下载进度条滚动(每5%触发)   | 0.3  | cooldown >= 0.3s
+
+================================================================================
+三、音效 - 游戏世界 (12个)
+================================================================================
+
+文件名                    | 触发时机                      | 音量 | 备注
+--------------------------|-------------------------------|------|------------------
+sfx_footstep.ogg         | 玩家行走中(按A/D移动时循环)     | 0.4  | cooldown >= 0.15s
+sfx_jump.ogg             | 按Space跳跃起跳瞬间            | 0.6  |
+sfx_land.ogg             | 跳跃后落地瞬间(isOnGround变true)| 0.5  |
+sfx_interact.ogg         | 按F键交互(出现交互提示时)       | 0.6  |
+sfx_door_enter.ogg       | 进入便利店(切换到SHOP状态)      | 0.7  |
+sfx_door_exit.ogg        | 离开便利店(切换回PLAYING状态)   | 0.5  |
+sfx_item_pickup.ogg      | 商店中拿起货架物品              | 0.6  |
+sfx_item_pay.ogg         | 商店柜台付款成功                | 0.7  |
+sfx_chase_alert.ogg      | 偷窃触发追逐(StartChase)       | 0.9  | 需要惊吓感
+sfx_chase_escape.ogg     | 追逐成功逃脱(gap > 750px)      | 0.7  |
+sfx_chase_caught.ogg     | 追逐被抓住(gap < 30px)         | 0.7  |
+sfx_npc_talk.ogg         | NPC对话气泡弹出                 | 0.5  | 每句对话播一次
+
+================================================================================
+四、音效 - QR扫描小游戏 (3个)
+================================================================================
+
+文件名                    | 触发时机                      | 音量 | 备注
+--------------------------|-------------------------------|------|------------------
+sfx_scan_focus.ogg       | 扫描框对准QR码(进入有效区域)    | 0.6  |
+sfx_scan_success.ogg     | 扫描成功完成                   | 0.8  |
+sfx_scan_fail.ogg        | 扫描失败/超时                  | 0.6  |
+
+================================================================================
+五、音效 - NPC老虎机小游戏 (4个)
+================================================================================
+
+文件名                    | 触发时机                      | 音量 | 备注
+--------------------------|-------------------------------|------|------------------
+sfx_slot_spin.ogg        | 点击"开始说服"转轮启动         | 0.6  | 可循环播放直到全部停止
+sfx_slot_stop.ogg        | 每列停止时(点击停止)            | 0.7  | 共触发3次(三列)
+sfx_slot_win.ogg         | 三列全"充电"(胜利)             | 0.9  |
+sfx_slot_lose.ogg        | 三列全"抢夺"(手机被偷)         | 0.8  |
+
+================================================================================
+六、音效 - 人脸节奏小游戏 (3个)
+================================================================================
+
+文件名                    | 触发时机                      | 音量 | 备注
+--------------------------|-------------------------------|------|------------------
+sfx_rhythm_perfect.ogg   | 按键时机在Perfect窗口(±0.1s)   | 0.8  |
+sfx_rhythm_good.ogg      | 按键时机在Good窗口(±0.35s)     | 0.6  | Great也用这个
+sfx_rhythm_miss.ogg      | 完全错过节拍                   | 0.5  |
+
+================================================================================
+七、音效 - 结局 (4个)
+================================================================================
+
+文件名                         | 触发时机                   | 音量 | 备注
+-------------------------------|----------------------------|------|------------------
+sfx_ending_charge_success.ogg  | 充电成功(WIN结局)          | 0.9  | 停BGM后播放
+sfx_ending_no_battery.ogg      | 没电关机(NO_BATTERY结局)   | 0.8  | sfx_phone_shutdown之后播放
+sfx_ending_stolen.ogg          | 手机被抢(STOLEN结局)       | 0.8  | 停BGM后播放
+sfx_ending_arrested.ogg        | 偷窃被抓(ARRESTED结局)     | 0.8  | 停BGM后播放
+
+================================================================================
+八、集成注意事项
+================================================================================
+
+1. 播放优先级
+   最高: sfx_phone_shutdown (播放时mute一切)
+   高:   sfx_battery_warning, sfx_battery_critical, sfx_chase_alert
+   中:   其他所有音效
+   低:   sfx_btn_hover, sfx_download_tick
+
+2. 防重叠
+   以下音效必须做cooldown,避免连续触发叠加爆音:
+   - sfx_footstep:     间隔 >= 0.15s (约每步0.2s)
+   - sfx_typing:       间隔 >= 0.1s
+   - sfx_download_tick: 间隔 >= 0.3s
+   - sfx_btn_hover:    间隔 >= 0.1s
+
+3. 一次性触发
+   以下音效在单局游戏中只触发一次:
+   - sfx_battery_warning  (电量首次<=2%)
+   - sfx_battery_critical (电量首次<=1%)
+   - sfx_ending_*         (结局只有一个)
+
+4. BGM切换触发点 (对应代码中的state切换)
+   state == Config.State.PLAYING or MENU  → bgm_city
+   state == Config.State.PHONE            → bgm_phone
+   state == Config.State.SHOP             → bgm_shop
+   state == Config.State.CHASE            → bgm_chase
+   state == Config.State.EVENT (slot)     → bgm_slot
+   state == Config.State.SCANNING         → 保持当前BGM不切换
+   state == Config.State.ENDING           → 停止BGM
+
+5. 结局音频时序
+   充电成功: 停BGM → 0.3s静音 → sfx_ending_charge_success
+   没电死亡: 停BGM → sfx_phone_shutdown → 等待播完 → sfx_ending_no_battery
+   被抢:     停BGM → sfx_ending_stolen
+   被抓:     停BGM → sfx_ending_arrested
+
+6. 贷款流程音频时序
+   点申请 → sfx_btn_click
+   广告弹出 → sfx_ad_popup
+   关广告 → sfx_ad_close
+   输入数字 → sfx_typing (每键)
+   SMS弹入 → sfx_notification
+   确认输入 → sfx_input_confirm
+   人脸游戏按键 → sfx_rhythm_perfect/good/miss
+   审批通过 → sfx_loan_approved
+
+7. slot_spin 循环处理
+   sfx_slot_spin 在转轮期间应循环播放
+   每次 sfx_slot_stop 触发时检查是否三列都停了
+   三列全停后停止 sfx_slot_spin 循环
+   然后根据结果播放 sfx_slot_win 或 sfx_slot_lose 或无(普通结果)
+
+================================================================================
+九、快速对照表 - 按游戏流程排列
+================================================================================
+
+[开始游戏]
+  → 播放 bgm_city
+
+[城市行走]
+  A/D移动     → sfx_footstep (循环)
+  Space跳     → sfx_jump → 落地 → sfx_land
+  靠近物体    → sfx_interact
+  按F交互     → 根据对象类型触发后续
+
+[打开手机]
+  Tab         → sfx_phone_open + 切换bgm_phone
+  点App       → sfx_app_tap
+  关手机      → sfx_phone_close + 切换bgm_city
+
+[广告弹出(随时)]
+  弹出        → sfx_ad_popup
+  关闭        → sfx_ad_close
+  误触        → sfx_ad_misclick
+
+[进便利店]
+  进门        → sfx_door_enter + 切换bgm_shop
+  拿物品      → sfx_item_pickup
+  付款        → sfx_item_pay
+  出门        → sfx_door_exit + 切换bgm_city
+  偷窃被发现  → sfx_chase_alert + 切换bgm_chase
+  逃脱成功    → sfx_chase_escape + 切换bgm_city
+  被抓        → sfx_chase_caught → sfx_ending_arrested
+
+[NPC老虎机]
+  进入        → 切换bgm_slot
+  转轮        → sfx_slot_spin (循环)
+  停列        → sfx_slot_stop (×3)
+  赢          → sfx_slot_win
+  输(被抢)    → sfx_slot_lose → sfx_ending_stolen
+
+[QR扫描]
+  对焦        → sfx_scan_focus
+  成功        → sfx_scan_success
+  失败        → sfx_scan_fail
+
+[贷款流程]
+  按键输入    → sfx_typing
+  短信        → sfx_notification
+  确认        → sfx_input_confirm
+  节奏游戏    → sfx_rhythm_perfect/good/miss
+  通过        → sfx_loan_approved
+
+[电量警告]
+  <=2%        → sfx_battery_warning
+  <=1%        → sfx_battery_critical
+  =0%         → sfx_phone_shutdown → sfx_ending_no_battery
+
+[充电成功]
+  接通电源    → sfx_ending_charge_success
+
+================================================================================
+                              文档结束
+================================================================================

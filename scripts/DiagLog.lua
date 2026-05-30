@@ -8,8 +8,8 @@
 local DiagLog = {}
 
 -- 配置
-local MAX_ENTRIES = 80         -- 最多保留条数
-local DISPLAY_LINES = 25       -- 浮层显示行数
+local MAX_ENTRIES = 120        -- 最多保留条数
+local DISPLAY_LINES = 35       -- 浮层显示行数
 
 -- 状态
 local entries = {}             -- 环形日志缓冲
@@ -149,39 +149,88 @@ function DiagLog.GetRecentLines(n)
     return lines
 end
 
---- 渲染日志浮层（NanoVG）
+--- 设置实时状态获取回调（避免DiagLog依赖game state）
+--- @param fn function 返回 {battery, phase, loanState, phoneOpen, adShowing, ...}
+local statusGetter = nil
+function DiagLog.SetStatusGetter(fn)
+    statusGetter = fn
+end
+
+--- 渲染日志浮层（NanoVG）- 大面板版
 function DiagLog.Render(vg, sw, sh)
     if not visible then return end
 
     local lines = DiagLog.GetRecentLines()
-    local lineH = 14
-    local padding = 10
-    local panelW = math.min(sw - 20, 500)
-    local panelH = #lines * lineH + padding * 2 + 30
+    local lineH = 16
+    local padding = 12
+    local panelW = math.min(sw - 10, 620)
+    local statusH = 60  -- 状态栏高度
+    local panelH = math.min(sh - 20, #lines * lineH + padding * 2 + 30 + statusH)
     local panelX = (sw - panelW) / 2
     local panelY = (sh - panelH) / 2
 
     -- 半透明背景
     nvgBeginPath(vg)
-    nvgRoundedRect(vg, panelX, panelY, panelW, panelH, 8)
-    nvgFillColor(vg, nvgRGBA(0, 0, 0, 230))
+    nvgRoundedRect(vg, panelX, panelY, panelW, panelH, 10)
+    nvgFillColor(vg, nvgRGBA(5, 8, 15, 240))
     nvgFill(vg)
-    nvgStrokeColor(vg, nvgRGBA(0, 255, 100, 180))
-    nvgStrokeWidth(vg, 1)
+    nvgStrokeColor(vg, nvgRGBA(0, 255, 100, 200))
+    nvgStrokeWidth(vg, 1.5)
     nvgStroke(vg)
 
-    -- 标题
+    -- 标题栏
     nvgFontFace(vg, "sans")
-    nvgFontSize(vg, 12)
+    nvgFontSize(vg, 14)
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
     nvgFillColor(vg, nvgRGBA(0, 255, 100, 255))
-    nvgText(vg, sw / 2, panelY + 6, "诊断日志 (共" .. totalCount .. "条) | 右键双击电量条关闭")
+    nvgText(vg, sw / 2, panelY + 8, "诊断日志 (" .. totalCount .. "条) | 右键双击电量条关闭")
 
-    -- 日志内容
-    nvgFontSize(vg, 10)
+    -- ===== 实时状态栏 =====
+    local statusY = panelY + 28
+    nvgBeginPath(vg)
+    nvgRect(vg, panelX + 6, statusY, panelW - 12, statusH - 4)
+    nvgFillColor(vg, nvgRGBA(20, 30, 50, 200))
+    nvgFill(vg)
+
+    if statusGetter then
+        local st = statusGetter()
+        if st then
+            nvgFontSize(vg, 11)
+            nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
+            -- 第一行
+            nvgFillColor(vg, nvgRGBA(180, 220, 255, 255))
+            local line1 = string.format("阶段=%s | 电量=%.1f%% | 手机=%s | 贷款=%s",
+                st.phase or "?", st.battery or 0,
+                st.phoneOpen and "开" or "关", st.loanState or "idle")
+            nvgText(vg, panelX + 12, statusY + 4, line1)
+            -- 第二行
+            nvgFillColor(vg, nvgRGBA(160, 200, 240, 220))
+            local line2 = string.format("广告=%s | 低电=%s | 屏幕=%.0fx%.0f | 时间=%.0fs",
+                st.adShowing and "显示中" or "无",
+                st.lowBattery and string.format("%.0fs", st.lowBatteryCountdown or 0) or "否",
+                sw, sh, os.clock() - startTime)
+            nvgText(vg, panelX + 12, statusY + 20, line2)
+            -- 第三行
+            if st.extra then
+                nvgFillColor(vg, nvgRGBA(255, 200, 100, 200))
+                nvgText(vg, panelX + 12, statusY + 36, st.extra)
+            end
+        end
+    end
+
+    -- ===== 日志内容 =====
+    local logStartY = statusY + statusH + 4
+    local availableH = panelY + panelH - logStartY - padding
+    local maxLines = math.floor(availableH / lineH)
+    local displayLines = {}
+    for i = math.max(1, #lines - maxLines + 1), #lines do
+        table.insert(displayLines, lines[i])
+    end
+
+    nvgFontSize(vg, 11)
     nvgTextAlign(vg, NVG_ALIGN_LEFT + NVG_ALIGN_TOP)
-    local textY = panelY + 26
-    for _, line in ipairs(lines) do
+    local textY = logStartY
+    for _, line in ipairs(displayLines) do
         -- 根据分类着色
         if string.find(line, "%[错误%]") then
             nvgFillColor(vg, nvgRGBA(255, 80, 80, 255))
@@ -189,10 +238,14 @@ function DiagLog.Render(vg, sw, sh)
             nvgFillColor(vg, nvgRGBA(255, 200, 50, 255))
         elseif string.find(line, "%[贷款%]") then
             nvgFillColor(vg, nvgRGBA(100, 200, 255, 255))
+        elseif string.find(line, "%[广告%]") then
+            nvgFillColor(vg, nvgRGBA(255, 150, 50, 255))
         elseif string.find(line, "%[事件%]") then
             nvgFillColor(vg, nvgRGBA(200, 255, 100, 255))
         elseif string.find(line, "%[渲染%]") then
             nvgFillColor(vg, nvgRGBA(200, 150, 255, 255))
+        elseif string.find(line, "%[输入%]") then
+            nvgFillColor(vg, nvgRGBA(255, 180, 220, 255))
         elseif string.find(line, "%[系统%]") then
             nvgFillColor(vg, nvgRGBA(0, 255, 100, 200))
         else
@@ -200,6 +253,7 @@ function DiagLog.Render(vg, sw, sh)
         end
         nvgText(vg, panelX + padding, textY, line)
         textY = textY + lineH
+        if textY > panelY + panelH - padding then break end
     end
 end
 

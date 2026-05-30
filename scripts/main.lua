@@ -69,6 +69,13 @@ local SLOT_COLORS = {
     { 180, 180, 180 },
     { 255, 50, 50 },   -- 抢夺=红
 }
+local SLOT_NUM_SYMBOLS = #SLOT_SYMBOLS
+
+-- 滚动状态（每个转轮一个连续的偏移值，单位=符号格）
+local slotScrollPos = { 0, 0, 0 }     -- 当前滚动位置（浮点）
+local slotTargetPos = { 0, 0, 0 }     -- 目标停止位置
+local slotScrollSpeed = { 0, 0, 0 }   -- 当前滚动速度（格/秒）
+local slotStopping = { false, false, false }  -- 是否正在减速停止
 
 -- ====================================================================
 -- 生命周期
@@ -954,26 +961,34 @@ end
 
 function SlotInsertCoin()
     if slotPhase ~= "idle" then return end
-    -- 不扣钱，直接开始博弈
     slotPhase = "spinning"
     slotResult = nil
     slotStopped = { false, false, false }
-    slotTimers = { 0, 0, 0 }
-    slotSpeeds = { 8 + math.random() * 4, 7 + math.random() * 4, 9 + math.random() * 4 }
-    slotReels = { math.random(1, 5), math.random(1, 5), math.random(1, 5) }
+    slotStopping = { false, false, false }
+    -- 各转轮不同速度，增加视觉层次
+    slotScrollSpeed = { 12 + math.random() * 4, 14 + math.random() * 4, 16 + math.random() * 4 }
+    -- 从当前位置继续滚
+    slotTargetPos = { 0, 0, 0 }
 end
 
 function SlotStopNext()
     if slotPhase ~= "spinning" then return end
     for i = 1, 3 do
-        if not slotStopped[i] then
-            slotStopped[i] = true
-            slotReels[i] = math.random(1, 5)
-            slotSpeeds[i] = 0
-            if slotStopped[1] and slotStopped[2] and slotStopped[3] then
-                slotPhase = "result"
-                EvaluateSlotResult()
+        if not slotStopped[i] and not slotStopping[i] then
+            slotStopping[i] = true
+            -- 决定最终停在哪个符号（随机）
+            local finalSymbol = math.random(1, SLOT_NUM_SYMBOLS)
+            slotReels[i] = finalSymbol
+            -- 计算目标位置：当前位置向前至少滚2圈 + 对齐到目标符号
+            local currentPos = slotScrollPos[i]
+            local extraRolls = 2 * SLOT_NUM_SYMBOLS  -- 至少再滚2整圈
+            local targetAligned = math.ceil(currentPos + extraRolls)
+            -- 对齐到目标符号位置
+            targetAligned = targetAligned - (targetAligned % SLOT_NUM_SYMBOLS) + (finalSymbol - 1)
+            if targetAligned <= currentPos + extraRolls then
+                targetAligned = targetAligned + SLOT_NUM_SYMBOLS
             end
+            slotTargetPos[i] = targetAligned
             return
         end
     end
@@ -1017,13 +1032,39 @@ end
 
 function UpdateSlotAnimation(dt)
     if not slotGameOpen or slotPhase ~= "spinning" then return end
+
+    local allDone = true
     for i = 1, 3 do
-        if not slotStopped[i] then
-            slotTimers[i] = slotTimers[i] + dt * slotSpeeds[i]
-            while slotTimers[i] >= 1.0 do
-                slotTimers[i] = slotTimers[i] - 1.0
-                slotReels[i] = slotReels[i] % 5 + 1
+        if slotStopped[i] then
+            -- 已完全停止，不处理
+        elseif slotStopping[i] then
+            -- 减速阶段：平滑趋近目标位置
+            local dist = slotTargetPos[i] - slotScrollPos[i]
+            if dist <= 0.01 then
+                -- 到达目标，完全对齐
+                slotScrollPos[i] = slotTargetPos[i]
+                slotStopped[i] = true
+                slotScrollSpeed[i] = 0
+                -- 检查是否全部停止
+                if slotStopped[1] and slotStopped[2] and slotStopped[3] then
+                    slotPhase = "result"
+                    EvaluateSlotResult()
+                end
+            else
+                -- 减速公式：速度与剩余距离成正比，但有最小速度保证能到达
+                local decelSpeed = math.max(3.0, dist * 5.0)
+                slotScrollSpeed[i] = math.min(slotScrollSpeed[i], decelSpeed)
+                slotScrollPos[i] = slotScrollPos[i] + slotScrollSpeed[i] * dt
+                -- 不超过目标
+                if slotScrollPos[i] >= slotTargetPos[i] then
+                    slotScrollPos[i] = slotTargetPos[i]
+                end
+                allDone = false
             end
+        else
+            -- 自由滚动阶段
+            slotScrollPos[i] = slotScrollPos[i] + slotScrollSpeed[i] * dt
+            allDone = false
         end
     end
 end
@@ -1937,13 +1978,14 @@ function RenderSlotGame(vg, sw, sh)
     nvgFillColor(vg, nvgRGBA(200, 180, 150, 200))
     nvgText(vg, panelX + panelW / 2, contentTop + 16, "三充电=借到充电宝 | 三抢夺=手机被抢")
 
-    -- 转轮区域
+    -- 转轮区域（滚动式）
     local reelAreaY = contentTop + 34
     local reelW = 70
     local reelH = 80
     local reelGap = 15
     local totalReelW = 3 * reelW + 2 * reelGap
     local reelStartX = panelX + (panelW - totalReelW) / 2
+    local symbolH = 28  -- 每个符号格高度
 
     -- 转轮背景
     nvgBeginPath(vg)
@@ -1951,42 +1993,73 @@ function RenderSlotGame(vg, sw, sh)
     nvgFillColor(vg, nvgRGBA(15, 15, 25, 255))
     nvgFill(vg)
 
-    -- 三个转轮
+    -- 三个转轮（带滚动效果）
     for i = 1, 3 do
         local rx = reelStartX + (i - 1) * (reelW + reelGap)
         local ry = reelAreaY
 
+        -- 转轮背景框
         nvgBeginPath(vg)
         nvgRoundedRect(vg, rx, ry, reelW, reelH, 5)
         nvgFillColor(vg, nvgRGBA(30, 30, 45, 255))
         nvgFill(vg)
+
+        -- 裁剪区域：只显示转轮内的符号
+        nvgSave(vg)
+        nvgScissor(vg, rx, ry, reelW, reelH)
+
+        -- 计算当前滚动偏移
+        local scrollPos = slotScrollPos[i]
+        local fracOffset = scrollPos % 1.0  -- 小数部分=当前符号内的偏移比例
+        local baseIdx = math.floor(scrollPos) % SLOT_NUM_SYMBOLS  -- 当前基准符号索引
+
+        -- 绘制可见的符号（中间行 + 上下各一行，共3行）
+        local centerY = ry + reelH / 2
+        for row = -1, 1 do
+            local symOffset = baseIdx + row + 1  -- +1 因为中间行对应的是下一个即将到达中线的符号
+            local symIdx = (symOffset % SLOT_NUM_SYMBOLS) + 1
+            local sym = SLOT_SYMBOLS[symIdx]
+            local col = SLOT_COLORS[symIdx]
+
+            -- 符号的Y位置（向下滚动）
+            local drawY = centerY + (row - fracOffset) * symbolH
+
+            -- 越靠近中心越不透明
+            local distFromCenter = math.abs(drawY - centerY)
+            local alpha = math.max(60, math.floor(255 - distFromCenter * 4))
+
+            nvgFontSize(vg, 20)
+            nvgFontFace(vg, "sans")
+            nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+            nvgFillColor(vg, nvgRGBA(col[1], col[2], col[3], alpha))
+            nvgText(vg, rx + reelW / 2, drawY, sym)
+        end
+
+        nvgResetScissor(vg)
+        nvgRestore(vg)
+
+        -- 边框
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, rx, ry, reelW, reelH, 5)
         if slotStopped[i] then
             nvgStrokeColor(vg, nvgRGBA(50, 255, 100, 200))
+        elseif slotStopping[i] then
+            nvgStrokeColor(vg, nvgRGBA(255, 200, 50, 200))
         else
             nvgStrokeColor(vg, nvgRGBA(80, 80, 120, 200))
         end
         nvgStrokeWidth(vg, 2)
         nvgStroke(vg)
 
-        -- 当前符号
-        local symIdx = slotReels[i]
-        local sym = SLOT_SYMBOLS[symIdx]
-        local col = SLOT_COLORS[symIdx]
-        nvgFontSize(vg, 22)
-        nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgFillColor(vg, nvgRGBA(col[1], col[2], col[3], 255))
-        nvgText(vg, rx + reelW / 2, ry + reelH / 2, sym)
-
-        -- 状态标记
-        if slotStopped[i] and slotPhase == "spinning" then
-            nvgFontSize(vg, 9)
-            nvgFillColor(vg, nvgRGBA(50, 255, 100, 200))
-            nvgText(vg, rx + reelW / 2, ry + reelH - 8, "STOP")
-        elseif not slotStopped[i] and slotPhase == "spinning" then
-            nvgFontSize(vg, 9)
-            nvgFillColor(vg, nvgRGBA(255, 255, 100, 180))
-            nvgText(vg, rx + reelW / 2, ry + reelH - 8, "...")
-        end
+        -- 中线指示（对准线）
+        nvgBeginPath(vg)
+        nvgMoveTo(vg, rx + 2, ry + reelH / 2)
+        nvgLineTo(vg, rx + 6, ry + reelH / 2)
+        nvgMoveTo(vg, rx + reelW - 6, ry + reelH / 2)
+        nvgLineTo(vg, rx + reelW - 2, ry + reelH / 2)
+        nvgStrokeColor(vg, nvgRGBA(255, 220, 50, 180))
+        nvgStrokeWidth(vg, 2)
+        nvgStroke(vg)
     end
 
     -- 状态/结果

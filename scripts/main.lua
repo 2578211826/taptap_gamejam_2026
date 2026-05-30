@@ -19,6 +19,7 @@ local LoanApp = require("LoanApp")
 local AdSystem = require("AdSystem")
 local DiagLog = require("DiagLog")
 local AudioManager = require("AudioManager")
+local AssetMap = require("AssetMap")
 
 -- ====================================================================
 -- 全局状态
@@ -487,6 +488,15 @@ function CreateEndingPanel()
                 gap = 12,
                 alignItems = "center",
                 children = {
+                    -- 结局插画
+                    UI.Panel {
+                        id = "endIllustration",
+                        width = 180,
+                        height = 180,
+                        borderRadius = 12,
+                        backgroundFit = "contain",
+                        marginBottom = 4,
+                    },
                     UI.Label {
                         id = "endTitle",
                         text = "游戏结束",
@@ -878,6 +888,18 @@ function TriggerEnding(endingType, reason)
     local panel = uiRoot:FindById("endingPanel")
     if not panel then return end
     panel:SetVisible(true)
+
+    -- 设置结局插画
+    local illustration = panel:FindById("endIllustration")
+    if illustration then
+        local imgPath = AssetMap.Endings[endingType]
+        if imgPath then
+            illustration:SetBackgroundImage(imgPath)
+            illustration:SetVisible(true)
+        else
+            illustration:SetVisible(false)
+        end
+    end
 
     local title = panel:FindById("endTitle")
     local subtitle = panel:FindById("endSubtitle")

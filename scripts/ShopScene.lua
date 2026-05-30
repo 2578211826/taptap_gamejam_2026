@@ -7,6 +7,7 @@
 local Config = require("Config")
 local ItemData = require("ItemData")
 local AudioManager = require("AudioManager")
+local AssetMap = require("AssetMap")
 
 local ShopScene = {}
 
@@ -1140,11 +1141,18 @@ function RenderShelfPanel(nvgCtx)
                 nvgStroke(nvgCtx)
             end
 
-            -- 商品名
+            -- 商品图标 (28×28)
+            local iconPath = AssetMap.Items[item.id]
+            if iconPath then
+                AssetMap.DrawImage(nvgCtx, iconPath, rowLeft + 4, rowTop + 2, 28, 28)
+            end
+
+            -- 商品名（图标后偏移）
+            local textOffsetX = iconPath and 38 or 10
             nvgFontSize(nvgCtx, 12)
             nvgTextAlign(nvgCtx, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
             nvgFillColor(nvgCtx, isHover and nvgRGBA(255, 255, 255, 255) or nvgRGBA(200, 200, 220, 255))
-            nvgText(nvgCtx, panelX + 20, iy + 12, item.name)
+            nvgText(nvgCtx, panelX + textOffsetX, iy + 12, item.name)
 
             -- 价格
             nvgTextAlign(nvgCtx, NVG_ALIGN_RIGHT + NVG_ALIGN_MIDDLE)

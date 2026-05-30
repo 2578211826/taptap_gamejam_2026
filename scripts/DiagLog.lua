@@ -149,11 +149,11 @@ function DiagLog.GetRecentLines(n)
     return lines
 end
 
---- 设置实时状态获取回调（避免DiagLog依赖game state）
---- @param fn function 返回 {battery, phase, loanState, phoneOpen, adShowing, ...}
 local statusGetter = nil
-function DiagLog.SetStatusGetter(fn)
-    statusGetter = fn
+--- 设置实时状态获取回调（避免DiagLog依赖game state）
+--- @param getter function 返回 {battery, phase, loanState, phoneOpen, adShowing, ...}
+function DiagLog.SetStatusGetter(getter)
+    statusGetter = getter
 end
 
 --- 渲染日志浮层（NanoVG）- 大面板版

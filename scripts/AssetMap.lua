@@ -1,0 +1,198 @@
+-- ====================================================================
+-- AssetMap.lua - 素材路径映射与NanoVG图片加载工具
+-- ====================================================================
+-- 统一管理所有美术资源的路径映射，提供懒加载缓存机制
+-- ====================================================================
+
+local AssetMap = {}
+
+-- NanoVG 图片句柄缓存 (path → handle)
+local imageCache = {}
+
+-- ====================================================================
+-- 商品图标 (64×64 透明背景)
+-- ====================================================================
+AssetMap.Items = {
+    -- 零食饮料
+    cola        = "image/items/snacks/商品_可乐_20260530111930.png",
+    chips       = "image/items/snacks/商品_薯片_20260530111923.png",
+    candy       = "image/items/snacks/商品_糖果_20260530112048.png",
+    water       = "image/items/snacks/商品_矿泉水_20260530111924.png",
+    coffee      = "image/items/snacks/商品_咖啡_20260530111925.png",
+    -- 日用文具
+    pen         = "image/items/stationery/商品_圆珠笔_20260530111924.png",
+    notebook    = "image/items/stationery/商品_笔记本_20260530111928.png",
+    tape        = "image/items/stationery/商品_胶带_20260530111926.png",
+    scissors    = "image/items/stationery/商品_剪刀_20260530111927.png",
+    glue        = "image/items/stationery/商品_胶水_20260530111928.png",
+    -- 电子配件（充电头）
+    charger_2pin_usba  = "image/items/electronics/商品_TypeC充电头_20260530112206.png",
+    charger_2pin_typec = "image/items/electronics/商品_TypeC充电头_20260530112206.png",
+    charger_3pin_usba  = "image/items/electronics/商品_万能充电头_20260530112210.png",
+    charger_3pin_typec = "image/items/electronics/商品_万能充电头_20260530112210.png",
+    -- 数据线
+    cable_usba_typec     = "image/items/electronics/商品_TypeC数据线_20260530112207.png",
+    cable_usba_lightning = "image/items/electronics/商品_Lightning数据线_20260530112210.png",
+    cable_usba_microusb  = "image/items/electronics/商品_MicroUSB数据线_20260530112248.png",
+    cable_typec_typec    = "image/items/electronics/商品_TypeC数据线_20260530112207.png",
+    cable_typec_lightning= "image/items/electronics/商品_Lightning数据线_20260530112210.png",
+    cable_typec_microusb = "image/items/electronics/商品_MicroUSB数据线_20260530112248.png",
+    -- 转接头
+    adapter_2to3 = "image/items/electronics/商品_TC转L转接头_20260530112327.png",
+    adapter_3to2 = "image/items/electronics/商品_USB转Micro转接头_20260530112335.png",
+}
+
+-- ====================================================================
+-- 交互物件 (透明背景)
+-- ====================================================================
+AssetMap.Interactables = {
+    powerbank = "image/interactables/交互_充电宝柜_20260530112416.png",    -- 143×256
+    outlet    = "image/interactables/交互_墙壁插座_20260530112416.png",    -- 64×64
+    shop      = "image/interactables/交互_商店门面_20260530112417.png",    -- 256×256
+}
+
+-- ====================================================================
+-- NPC (143×256 透明背景)
+-- ====================================================================
+AssetMap.NPC = {
+    passerby_a = "image/npc/NPC_路人甲_20260530112658.png",
+    passerby_b = "image/npc/NPC_路人乙_20260530112634.png",
+    clerk      = "image/npc/NPC_店员_20260530112637.png",
+    chaser     = "image/npc/NPC_店主追击_20260530112805.png",
+    thug       = "image/npc/NPC_混混_20260530112635.png",
+}
+
+-- ====================================================================
+-- 街道道具 (透明背景)
+-- ====================================================================
+AssetMap.Props = {
+    trashcan   = "image/props/道具_垃圾桶_20260530112506.png",        -- 71×128
+    vending    = "image/props/道具_自贩机_20260530112555.png",        -- 143×256
+    billboard_a= "image/props/道具_广告牌A_20260530112508.png",       -- 143×256
+    billboard_b= "image/props/道具_广告牌B_20260530112508.png",       -- 143×256
+    hydrant    = "image/props/道具_消防栓_20260530112504.png",        -- 71×128
+    pole       = "image/props/道具_电线杆_20260530112507.png",        -- 143×256
+}
+
+-- ====================================================================
+-- 建筑 (286×512 透明背景)
+-- ====================================================================
+AssetMap.Buildings = {
+    "image/buildings/建筑_便利店_20260530110909.png",
+    "image/buildings/建筑_网吧_20260530110917.png",
+    "image/buildings/建筑_居民楼A_20260530110910.png",
+    "image/buildings/建筑_药房_20260530110913.png",
+    "image/buildings/建筑_废弃店面_20260530111029.png",
+    "image/buildings/建筑_拉面店_20260530111106.png",
+    "image/buildings/建筑_写字楼_20260530111109.png",
+    "image/buildings/建筑_KTV_20260530111111.png",
+}
+
+-- ====================================================================
+-- 环境
+-- ====================================================================
+AssetMap.Environment = {
+    sky    = "image/environment/环境_夜空背景_20260530111105.png",     -- 1024×572
+    ground = "image/environment/环境_地面纹理_20260530111112.png",     -- 1024×572
+    lamp   = "image/environment/环境_路灯_20260530111144.png",         -- 286×512
+    -- 远景建筑簇（透明底，2-4栋紧挨的建筑组合）
+    bg_buildings = {
+        { path = "image/远景建筑簇_写字楼组A_20260530165618.png", w = 429, h = 320 },
+        { path = "image/远景建筑簇_居民楼组B_20260530165619.png", w = 450, h = 336 },
+        { path = "image/远景建筑簇_工业组C_20260530165624.png",   w = 320, h = 429 },
+        { path = "image/远景建筑簇_高楼组D_20260530165620.png",   w = 350, h = 469 },
+        { path = "image/远景建筑簇_混合组E_20260530165617.png",   w = 429, h = 320 },
+        { path = "image/远景建筑簇_塔楼组F_20260530165618.png",   w = 287, h = 384 },
+    },
+}
+
+-- ====================================================================
+-- 结局插画 (512×512 不透明)
+-- ====================================================================
+AssetMap.Endings = {
+    win        = "image/endings/结局_胜利充满电_20260530112906.png",
+    no_battery = "image/endings/结局_电量耗尽_20260530112856.png",
+    stolen     = "image/endings/结局_手机被偷_20260530112854.png",
+    dead       = "image/endings/结局_死亡_20260530112857.png",
+    arrested   = "image/endings/结局_被捕_20260530112859.png",
+}
+
+-- ====================================================================
+-- NanoVG 图片加载工具（带缓存）
+-- ====================================================================
+
+--- 加载图片并缓存 NanoVG handle。首次调用时创建，后续返回缓存。
+---@param nvg NVGContextWrapper
+---@param path string 资源路径
+---@return integer handle (0 表示失败)
+function AssetMap.GetImage(nvg, path)
+    if not path then return 0 end
+    if imageCache[path] then return imageCache[path] end
+
+    local handle = nvgCreateImage(nvg, path, 0)
+    if handle and handle > 0 then
+        imageCache[path] = handle
+    else
+        print("[AssetMap] Failed to load: " .. path)
+        imageCache[path] = 0
+        return 0
+    end
+    return handle
+end
+
+--- 绘制图片到指定矩形区域
+---@param nvg NVGContextWrapper
+---@param path string 资源路径
+---@param x number 左上角X
+---@param y number 左上角Y
+---@param w number 宽度
+---@param h number 高度
+---@param alpha? number 透明度 0~1 (默认1)
+function AssetMap.DrawImage(nvg, path, x, y, w, h, alpha)
+    local handle = AssetMap.GetImage(nvg, path)
+    if handle == 0 then return false end
+
+    local paint = nvgImagePattern(nvg, x, y, w, h, 0, handle, alpha or 1.0)
+    nvgBeginPath(nvg)
+    nvgRect(nvg, x, y, w, h)
+    nvgFillPaint(nvg, paint)
+    nvgFill(nvg)
+    return true
+end
+
+--- 绘制图片（居中锚点）
+---@param nvg NVGContextWrapper
+---@param path string 资源路径
+---@param cx number 中心X
+---@param cy number 中心Y (底部对齐时传 bottom - h/2)
+---@param w number 宽度
+---@param h number 高度
+---@param alpha? number
+function AssetMap.DrawImageCentered(nvg, path, cx, cy, w, h, alpha)
+    return AssetMap.DrawImage(nvg, path, cx - w / 2, cy - h / 2, w, h, alpha)
+end
+
+--- 绘制图片（底部居中锚点，适合站在地面的角色/物体）
+---@param nvg NVGContextWrapper
+---@param path string 资源路径
+---@param cx number 中心X
+---@param bottomY number 底部Y（地面位置）
+---@param w number 宽度
+---@param h number 高度
+---@param alpha? number
+function AssetMap.DrawImageBottom(nvg, path, cx, bottomY, w, h, alpha)
+    return AssetMap.DrawImage(nvg, path, cx - w / 2, bottomY - h, w, h, alpha)
+end
+
+--- 清除所有缓存的图片句柄（场景切换时调用）
+---@param nvg NVGContextWrapper
+function AssetMap.ClearCache(nvg)
+    for path, handle in pairs(imageCache) do
+        if handle > 0 then
+            nvgDeleteImage(nvg, handle)
+        end
+    end
+    imageCache = {}
+end
+
+return AssetMap

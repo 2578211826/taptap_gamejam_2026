@@ -52,6 +52,12 @@ local COUNTER_X = 750      -- 柜台位置（右侧）
 local doorWarningOpen = false    -- 是否显示离店警告面板
 local doorWarningChoice = 1      -- 1=回去付款, 2=硬闯
 
+-- 充电宝柜（概率生成）
+local hasPowerbank = false       -- 本次进店是否有充电宝柜
+local powerbankX = 720           -- 充电宝柜位置
+local shopBuildingIdx = 4        -- 所属建筑 index
+local shopStationId = nil        -- 充电宝柜ID
+
 -- 鼠标 hover/pressed 状态（由 main.lua 驱动）
 local shopHoveredBtn = nil       -- 当前 hover 的按钮id
 local shopPressedBtn = nil       -- 当前按下的按钮id
@@ -89,9 +95,10 @@ end
 -- ====================================================================
 -- 进入/离开商店
 -- ====================================================================
-function ShopScene.Enter(gs, exitCallback)
+function ShopScene.Enter(gs, buildingIndex, exitCallback)
     active = true
     gameState = gs
+    shopBuildingIdx = buildingIndex or 4
     playerX = 80  -- 从门口开始
     facingRight = true
     onExitCallback = exitCallback
@@ -112,6 +119,10 @@ function ShopScene.Enter(gs, exitCallback)
     doorWarningOpen = false
     doorWarningChoice = 1
 
+    -- 60% 概率生成充电宝柜
+    hasPowerbank = math.random() < 0.6
+    shopStationId = "pb_shop_" .. shopBuildingIdx
+
     -- 构建交互区域
     interactZones = {
         { x = DOOR_X, w = 60, type = "door", label = "离开商店" },
@@ -128,13 +139,31 @@ function ShopScene.Enter(gs, exitCallback)
     table.insert(interactZones, {
         x = COUNTER_X, w = 100, type = "counter", label = "柜台-店员",
     })
+    -- 充电宝柜交互区（如果本次有）
+    if hasPowerbank then
+        table.insert(interactZones, {
+            x = powerbankX, w = 60, type = "powerbank", label = "充电宝柜",
+        })
+        -- 注册到全局系统
+        local PowerbankSystem = require("PowerbankSystem")
+        local existing = PowerbankSystem.GetById(shopStationId)
+        if not existing then
+            PowerbankSystem.Register(shopStationId, shopBuildingIdx, powerbankX, "杂货铺内")
+        end
+        PowerbankSystem.SetCurrentScene(shopBuildingIdx)
+    end
 
-    print("[ShopScene] 进入商店")
+    print("[ShopScene] 进入商店 (building=" .. shopBuildingIdx .. ", hasPowerbank=" .. tostring(hasPowerbank) .. ")")
 end
 
 function ShopScene.Exit()
     active = false
     nearbyZone = nil
+    -- 离开时清除充电宝柜场景保护
+    if hasPowerbank then
+        local PowerbankSystem = require("PowerbankSystem")
+        PowerbankSystem.SetCurrentScene(nil)
+    end
     -- 检查是否有未付款物品
     local unpaid = ShopScene.GetUnpaidItems()
     local hasUnpaid = #unpaid > 0
@@ -218,6 +247,29 @@ function ShopScene.OnInteract()
         return true
     elseif nearbyZone.type == "counter" then
         ShopScene.OpenCounter()
+        return true
+    elseif nearbyZone.type == "powerbank" then
+        -- 充电宝柜交互：检查状态后引导扫码
+        local PowerbankSystem = require("PowerbankSystem")
+        if PowerbankSystem.CanUse(shopStationId) then
+            -- 弹出提示，引导打开手机扫码
+            counterOpen = true
+            counterDialogue = "充电宝柜状态正常，扫码即可借用。\n打开手机-扫码App操作。"
+            counterOptions = {
+                { text = "打开手机", action = "phone" },
+                { text = "算了", action = "close" },
+            }
+            counterSelectedIdx = 1
+        else
+            local station = PowerbankSystem.GetById(shopStationId)
+            local stateLabel = station and PowerbankSystem.GetStateLabel(station.state) or "不可用"
+            counterOpen = true
+            counterDialogue = "充电宝柜当前：" .. stateLabel .. "\n无法借用，试试其他地方吧。"
+            counterOptions = {
+                { text = "知道了", action = "close" },
+            }
+            counterSelectedIdx = 1
+        end
         return true
     end
 
@@ -712,6 +764,11 @@ function ShopScene.Render(nvgCtx, sw, sh)
     -- 柜台 + 店员
     RenderCounter(nvgCtx)
 
+    -- 充电宝柜（概率出现）
+    if hasPowerbank then
+        RenderShopPowerbank(nvgCtx)
+    end
+
     -- 玩家
     RenderShopPlayer(nvgCtx)
 
@@ -893,6 +950,82 @@ function RenderCounter(nvgCtx)
     nvgFill(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
     nvgText(nvgCtx, npcX, npcY - 36, "店员")
+end
+
+function RenderShopPowerbank(nvgCtx)
+    -- 充电宝柜：绿色立柜，LED指示灯
+    local bx = powerbankX
+    local bw = 44
+    local bh = 80
+    local by = FLOOR_Y - bh
+
+    -- 柜体
+    nvgBeginPath(nvgCtx)
+    nvgRoundedRect(nvgCtx, bx, by, bw, bh, 4)
+    nvgFillColor(nvgCtx, nvgRGBA(40, 120, 60, 255))
+    nvgFill(nvgCtx)
+    nvgStrokeColor(nvgCtx, nvgRGBA(20, 80, 40, 255))
+    nvgStrokeWidth(nvgCtx, 1.5)
+    nvgStroke(nvgCtx)
+
+    -- 顶部品牌条
+    nvgBeginPath(nvgCtx)
+    nvgRect(nvgCtx, bx + 3, by + 4, bw - 6, 12)
+    nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 220))
+    nvgFill(nvgCtx)
+    nvgFontSize(nvgCtx, 8)
+    nvgFontFace(nvgCtx, "sans")
+    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+    nvgFillColor(nvgCtx, nvgRGBA(40, 120, 60, 255))
+    nvgText(nvgCtx, bx + bw / 2, by + 10, "充电宝")
+
+    -- 充电宝槽位（4个小矩形模拟）
+    local slotH = 10
+    local slotGap = 3
+    local slotStartY = by + 22
+    for i = 1, 4 do
+        local sy = slotStartY + (i - 1) * (slotH + slotGap)
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, bx + 6, sy, bw - 12, slotH, 2)
+        nvgFillColor(nvgCtx, nvgRGBA(30, 30, 40, 200))
+        nvgFill(nvgCtx)
+        -- 充电宝条（部分槽有充电宝）
+        if i <= 3 then
+            nvgBeginPath(nvgCtx)
+            nvgRoundedRect(nvgCtx, bx + 7, sy + 1, bw - 14, slotH - 2, 2)
+            nvgFillColor(nvgCtx, nvgRGBA(200, 200, 210, 230))
+            nvgFill(nvgCtx)
+        end
+    end
+
+    -- 状态LED指示灯
+    local PowerbankSystem = require("PowerbankSystem")
+    local station = PowerbankSystem.GetById(shopStationId)
+    local ledColor
+    if station and station.state == PowerbankSystem.State.AVAILABLE then
+        ledColor = nvgRGBA(0, 255, 80, 255)  -- 绿色=可用
+    elseif station and station.state == PowerbankSystem.State.EMPTY then
+        ledColor = nvgRGBA(255, 200, 0, 255)  -- 黄色=空柜
+    else
+        ledColor = nvgRGBA(255, 50, 50, 255)  -- 红色=离线
+    end
+
+    nvgBeginPath(nvgCtx)
+    nvgCircle(nvgCtx, bx + bw / 2, by + bh - 12, 4)
+    nvgFillColor(nvgCtx, ledColor)
+    nvgFill(nvgCtx)
+
+    -- LED 光晕
+    nvgBeginPath(nvgCtx)
+    nvgCircle(nvgCtx, bx + bw / 2, by + bh - 12, 7)
+    nvgFillColor(nvgCtx, nvgRGBA(0, 255, 80, 30))
+    nvgFill(nvgCtx)
+
+    -- 底部扫码标识
+    nvgFontSize(nvgCtx, 7)
+    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+    nvgFillColor(nvgCtx, nvgRGBA(200, 255, 200, 200))
+    nvgText(nvgCtx, bx + bw / 2, by + bh - 3, "扫码借")
 end
 
 function RenderShopPlayer(nvgCtx)

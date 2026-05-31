@@ -16,11 +16,11 @@
 
 文件名                    | 场景              | 音量  | 切换方式
 --------------------------|-------------------|-------|------------------
-bgm_city.ogg   (~96s)    | PLAYING/MENU 状态 | 0.35  | 默认BGM，淡入淡出
-bgm_shop.ogg   (~172s)   | SHOP 状态         | 0.30  | 0.5s crossfade
-bgm_chase.ogg  (~152s)   | CHASE 状态        | 0.45  | 立即切换(紧迫感)
-bgm_phone.ogg  (~255s)   | PHONE 状态        | 0.25  | 0.5s crossfade
-bgm_slot.ogg   (~111s)   | EVENT(老虎机)     | 0.40  | 0.5s crossfade
+bgm_city.ogg   (~41s)    | PLAYING/MENU 状态 | 0.35  | 默认BGM，淡入淡出 [sitcom phonk]
+bgm_shop.ogg   (~23s)    | SHOP 状态         | 0.30  | 0.5s crossfade [后巷found-sound鼓点,循环]
+bgm_chase.ogg  (~70s)    | CHASE 状态        | 0.45  | 立即切换(紧迫感) [comedy chase phonk]
+bgm_phone.ogg  (~18s)    | PHONE 状态        | 0.25  | 0.5s crossfade [city经手机喇叭滤镜,循环]
+bgm_slot.ogg   (~110s)   | EVENT(老虎机)     | 0.40  | 0.5s crossfade [sweaty gamble funk]
 
 BGM 电量联动规则:
   电量 > 3%   → pitch = 1.0, gain = 正常

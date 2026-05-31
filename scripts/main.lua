@@ -20,6 +20,7 @@ local AdSystem = require("AdSystem")
 local DiagLog = require("DiagLog")
 local AudioManager = require("AudioManager")
 local AssetMap = require("AssetMap")
+local PowerbankSystem = require("PowerbankSystem")
 
 -- ====================================================================
 -- 全局状态
@@ -135,11 +136,30 @@ function Start()
     WorldRenderer.Init(screenW, screenH)
     gs.playerY = WorldRenderer.GetGroundY()
 
+    -- 初始化充电宝柜系统（从世界交互物中提取充电宝柜数据）
+    PowerbankSystem.Init(0)
+    local interactables = WorldRenderer.GetInteractables()
+    for _, item in ipairs(interactables) do
+        if item.type == "powerbank" then
+            PowerbankSystem.Register(
+                "pb_street_" .. math.floor(item.x),
+                item.buildingIndex or 0,
+                item.x,
+                "街道"
+            )
+        end
+    end
+    PowerbankSystem.RandomizeStates()
+
     -- 初始化扫码小游戏
     ScanMiniGame.Init(nvg, screenW, screenH)
 
     -- 初始化商店场景
     ShopScene.Init(nvg, screenW, screenH)
+
+    -- 初始化网吧场景
+    local InternetCafeScene = require("InternetCafeScene")
+    InternetCafeScene.Init(nvg, screenW, screenH)
 
     -- 初始化手机 UI
     PhoneUI.Init(HandlePhoneEvent)
@@ -990,13 +1010,30 @@ end
 -- ====================================================================
 function HandleScanResult(result)
     if result == "success" then
-        -- 扫码成功 → 弹出支付确认
+        -- 扫码成功 → 先检查柜子是否仍然可用（可能在扫码期间被 tick 改变）
+        local stationId = gs.nearbyInteractable and gs.nearbyInteractable.stationId
+        if stationId then
+            local canUse, msg = PowerbankSystem.CanUse(stationId)
+            if not canUse then
+                gs.phase = Config.State.EVENT
+                ShowMessage("借取失败", "扫码成功但...\n" .. msg, "运气真差", function()
+                    gs.phase = Config.State.PLAYING
+                end)
+                return
+            end
+        end
+
+        -- 弹出支付确认
         gs.phase = Config.State.EVENT
         ShowMessage("支付确认", "共享充电宝押金\n¥99.99\n\n确认支付？", "支付¥99.99", function()
             if gs.money >= 99.99 then
                 gs.money = gs.money - 99.99
                 gs.stats.moneySpent = gs.stats.moneySpent + 99.99
                 gs.stats.payCount = gs.stats.payCount + 1
+                -- 通知 PowerbankSystem 借出
+                if stationId then
+                    PowerbankSystem.TryBorrow(stationId)
+                end
                 TriggerEnding(Config.Ending.WIN, "通过共享充电宝充电")
             else
                 ShowMessage("支付失败", "余额不足！需要¥99.99\n\n你明明扫上了...", "穷死了", function()
@@ -1093,7 +1130,16 @@ function HandleInteract()
     local item = gs.nearbyInteractable
 
     if item.type == "powerbank" then
-        -- 需要打开手机扫码
+        -- 先检查充电宝柜状态
+        local stationId = item.stationId
+        if stationId then
+            local canUse, msg = PowerbankSystem.CanUse(stationId)
+            if not canUse then
+                ShowMessage("充电宝柜", msg, "知道了")
+                return
+            end
+        end
+        -- 状态可用 → 提示打开手机扫码
         ShowMessage("共享充电宝", "需要扫码才能使用\n请打开手机 → 扫码App", "好的", function()
             -- 提示玩家打开手机
         end)
@@ -1103,7 +1149,7 @@ function HandleInteract()
         AudioManager.DoorEnter()
         AudioManager.SetBGMForState(Config.State.SHOP)
         gs.phase = Config.State.SHOP
-        ShopScene.Enter(gs, function(hasUnpaid)
+        ShopScene.Enter(gs, item.buildingIndex, function(hasUnpaid)
             -- 退出商店回调
             AudioManager.DoorExit()
             if hasUnpaid then
@@ -1130,6 +1176,20 @@ function HandleInteract()
             -- 链路不完整，提示具体原因
             ShowMessage("无法充电", chainReason, "知道了")
         end
+
+    elseif item.type == "internet_cafe" then
+        -- 进入网吧室内场景
+        local InternetCafeScene = require("InternetCafeScene")
+        AudioManager.DoorEnter()
+        gs.phase = Config.State.SHOP  -- 复用 SHOP 状态（室内场景）
+        PowerbankSystem.SetCurrentScene(item.buildingIndex)
+        InternetCafeScene.Enter(gs, item.buildingIndex, function()
+            -- 退出网吧回调
+            AudioManager.DoorExit()
+            PowerbankSystem.SetCurrentScene(nil)
+            AudioManager.SetBGMForState(Config.State.PLAYING)
+            gs.phase = Config.State.PLAYING
+        end)
 
     elseif item.type == "npc" then
         AudioManager.Interact()
@@ -1209,8 +1269,10 @@ function OpenSlotGame()
     slotResult = nil
     slotReels = { math.random(1, 5), math.random(1, 5), math.random(1, 5) }
     slotStopped = { false, false, false }
+    -- 保存来源状态，以便关闭后返回正确场景
+    slotReturnPhase = gs.phase  -- PLAYING 或 SHOP(网吧)
     gs.phase = Config.State.EVENT
-    print("[SlotGame] NPC老虎机博弈开始")
+    print("[SlotGame] NPC老虎机博弈开始, returnPhase=" .. tostring(slotReturnPhase))
 end
 
 function CloseSlotGame()
@@ -1222,9 +1284,13 @@ function CloseSlotGame()
     slotGameOpen = false
     slotPhase = "idle"
     slotResult = nil
-    gs.phase = Config.State.PLAYING
-    -- 如果倒计时仍激活，回到 PLAYING 后自动弹出手机警告
-    if lowBatteryActive and gs.battery > 0 then
+    -- 根据来源状态返回（网吧→SHOP，街道→PLAYING）
+    local returnTo = slotReturnPhase or Config.State.PLAYING
+    slotReturnPhase = nil
+    gs.phase = returnTo
+    print("[SlotGame] 关闭, 返回状态=" .. tostring(returnTo))
+    -- 如果倒计时仍激活且返回街道，弹出手机警告
+    if returnTo == Config.State.PLAYING and lowBatteryActive and gs.battery > 0 then
         gs.phoneOpen = true
         gs.phase = Config.State.PHONE
         PhoneUI.Open()
@@ -1426,9 +1492,14 @@ function HandleUpdate(eventType, eventData)
         ScanMiniGame.Update(dt)
     end
 
-    -- 商店场景更新
+    -- 商店/网吧场景更新
     if gs.phase == Config.State.SHOP then
-        ShopScene.Update(dt)
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            InternetCafeScene.Update(dt)
+        else
+            ShopScene.Update(dt)
+        end
     end
 
     -- 追击更新
@@ -1519,6 +1590,9 @@ function HandleUpdate(eventType, eventData)
 
     -- 更新电量 UI
     UpdateBatteryUI()
+
+    -- 充电宝柜系统更新（30秒 tick）
+    PowerbankSystem.Update(dt)
 
     -- 玩家移动（非手机模式时）
     if gs.phase == Config.State.PLAYING then
@@ -1827,8 +1901,32 @@ function HandleKeyDown(eventType, eventData)
         return
     end
 
-    -- 商店场景中
+    -- 商店/网吧场景中
     if gs.phase == Config.State.SHOP then
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            -- 网吧场景键盘处理
+            if InternetCafeScene.IsDialogOpen() then
+                if key == KEY_W or key == KEY_UP then
+                    InternetCafeScene.DialogNavigate(-1)
+                elseif key == KEY_S or key == KEY_DOWN then
+                    InternetCafeScene.DialogNavigate(1)
+                elseif key == KEY_F or key == KEY_RETURN then
+                    InternetCafeScene.DialogConfirm()
+                elseif key == KEY_ESCAPE then
+                    InternetCafeScene.CloseDialog()
+                end
+            elseif InternetCafeScene.IsUsbCharging() then
+                -- 充电中不处理输入（等待完成）
+            else
+                if key == KEY_F then
+                    InternetCafeScene.OnInteract()
+                elseif key == KEY_ESCAPE then
+                    InternetCafeScene.Exit()
+                end
+            end
+            return
+        end
         if ShopScene.IsDoorWarningOpen() then
             -- 门口警告面板（最高优先级）
             if key == KEY_W or key == KEY_UP then
@@ -1952,6 +2050,7 @@ function HandleKeyDown(eventType, eventData)
             gs.stats.phoneOpenCount = gs.stats.phoneOpenCount + 1
             AudioManager.PhoneOpen()
             AudioManager.SetBGMForState(Config.State.PHONE)
+            PhoneUI.SetPlayerPosition(gs.playerX)
             PhoneUI.Open()
             CheckBattery()
 
@@ -2000,9 +2099,14 @@ function HandleMouseMove(eventType, eventData)
     -- 更新 hover 状态
     hoveredBtn = GetButtonAtPosition(mouseLogX, mouseLogY)
 
-    -- 同步 hover/pressed 状态给 ShopScene（用于按钮视觉反馈）
+    -- 同步 hover/pressed 状态给 ShopScene/网吧（用于按钮视觉反馈）
     if gs.phase == Config.State.SHOP then
-        ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            InternetCafeScene.SetHoverState(hoveredBtn, pressedBtn)
+        else
+            ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+        end
     end
 end
 
@@ -2017,9 +2121,14 @@ function HandleMouseUp(eventType, eventData)
     end
     pressedBtn = nil
 
-    -- 清除 ShopScene 的 pressed 状态
+    -- 清除 ShopScene/网吧 的 pressed 状态
     if gs.phase == Config.State.SHOP then
-        ShopScene.SetHoverState(hoveredBtn, nil)
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            InternetCafeScene.SetHoverState(hoveredBtn, nil)
+        else
+            ShopScene.SetHoverState(hoveredBtn, nil)
+        end
     end
 end
 
@@ -2055,11 +2164,31 @@ function HandleMouseDown(eventType, eventData)
     local btn = GetButtonAtPosition(mouseLogX, mouseLogY)
     if btn then
         pressedBtn = btn
-        -- 同步 pressed 状态给 ShopScene
+        -- 同步 pressed 状态给 ShopScene/网吧
         if gs.phase == Config.State.SHOP then
-            ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+            local InternetCafeScene = require("InternetCafeScene")
+            if InternetCafeScene.IsActive() then
+                InternetCafeScene.SetHoverState(hoveredBtn, pressedBtn)
+            else
+                ShopScene.SetHoverState(hoveredBtn, pressedBtn)
+            end
         end
         return
+    end
+
+    -- 点击面板外 → 关闭面板（网吧场景）
+    if gs.phase == Config.State.SHOP then
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() and InternetCafeScene.IsDialogOpen() then
+            local panelW = 340
+            local panelH = 180
+            local panelX = (screenW - panelW) / 2
+            local panelY = (screenH - panelH) / 2
+            if mouseLogX < panelX or mouseLogX > panelX + panelW or mouseLogY < panelY or mouseLogY > panelY + panelH then
+                InternetCafeScene.CloseDialog()
+                return
+            end
+        end
     end
 
     -- 点击商店面板外 → 关闭面板
@@ -2111,13 +2240,23 @@ end
 
 -- 判断逻辑坐标(mx,my)处有什么按钮
 function GetButtonAtPosition(mx, my)
-    -- 商店场景面板按钮（门口警告、柜台对话）
+    -- 商店/网吧场景面板按钮
     if gs.phase == Config.State.SHOP then
-        local shopBtn = ShopScene.GetButtonAtPosition(mx, my)
-        if shopBtn then return shopBtn end
-        -- 商店面板打开时不检测其他按钮
-        if ShopScene.IsDoorWarningOpen() or ShopScene.IsCounterOpen() then
-            return nil
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            local cafeBtn = InternetCafeScene.GetButtonAtPosition(mx, my)
+            if cafeBtn then return cafeBtn end
+            -- 网吧对话打开时不检测其他按钮
+            if InternetCafeScene.IsDialogOpen() then
+                return nil
+            end
+        else
+            local shopBtn = ShopScene.GetButtonAtPosition(mx, my)
+            if shopBtn then return shopBtn end
+            -- 商店面板打开时不检测其他按钮
+            if ShopScene.IsDoorWarningOpen() or ShopScene.IsCounterOpen() then
+                return nil
+            end
         end
     end
 
@@ -2170,6 +2309,14 @@ end
 -- 执行按钮点击动作
 function ExecuteButtonClick(btnId)
     if not btnId then return end
+
+    -- 网吧场景按钮
+    local InternetCafeScene = require("InternetCafeScene")
+    if InternetCafeScene.IsActive() then
+        if InternetCafeScene.ExecuteButtonClick(btnId) then
+            return
+        end
+    end
 
     -- 商店场景按钮（门口警告、柜台对话）
     if ShopScene.ExecuteButtonClick(btnId) then
@@ -3296,9 +3443,14 @@ function HandleRender(eventType, eventData)
     nvgBeginFrame(nvg, physW, physH, dpr)
 
     if gs.phase ~= Config.State.MENU then
-        -- 商店室内场景
+        -- 商店/网吧室内场景
         if gs.phase == Config.State.SHOP then
-            ShopScene.Render(nvg, screenW, screenH)
+            local InternetCafeScene = require("InternetCafeScene")
+            if InternetCafeScene.IsActive() then
+                InternetCafeScene.Render(nvg, screenW, screenH)
+            else
+                ShopScene.Render(nvg, screenW, screenH)
+            end
         else
             -- 渲染城市世界
             WorldRenderer.Render(nvg, gs.cameraX, screenW, screenH)

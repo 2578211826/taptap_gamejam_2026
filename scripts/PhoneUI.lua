@@ -37,6 +37,10 @@ local fakeAppLoadingTime = 0  -- 低电量时先转圈
 local fakeAppLoading = false
 local fakeAppDownloadSpeed = 0
 
+-- 地图 App 状态
+local mapListPanel = nil       -- 地图列表容器引用
+local cachedPlayerX = 0        -- 缓存玩家世界X坐标
+
 function PhoneUI.Init(eventCallback)
     onEventCallback = eventCallback
 end
@@ -269,6 +273,14 @@ function PhoneUI.AppIcon(name, color, onClick)
 end
 
 function PhoneUI.CreateMapApp()
+    -- 地图列表容器（动态刷新）
+    mapListPanel = UI.Panel {
+        id = "mapList",
+        flexGrow = 1,
+        gap = 5,
+        overflow = "scroll",
+    }
+
     mapPanel = UI.Panel {
         id = "mapApp",
         visible = false,
@@ -277,8 +289,8 @@ function PhoneUI.CreateMapApp()
         position = "absolute",
         top = 0, left = 0,
         padding = 10,
-        gap = 8,
-        backgroundColor = { 25, 35, 30, 255 },
+        gap = 6,
+        backgroundColor = { 20, 28, 25, 255 },
         children = {
             -- 标题栏
             UI.Panel {
@@ -286,7 +298,7 @@ function PhoneUI.CreateMapApp()
                 justifyContent = "space-between",
                 alignItems = "center",
                 children = {
-                    UI.Label { text = "附近充电点", fontSize = 13, fontColor = { 100, 255, 100, 255 } },
+                    UI.Label { text = "附近充电点", fontSize = 13, fontColor = { 80, 230, 80, 255 } },
                     UI.Button {
                         text = "X",
                         width = 24, height = 24,
@@ -296,22 +308,23 @@ function PhoneUI.CreateMapApp()
                     },
                 },
             },
-            -- 地图内容（简化列表）
+            -- 玩家位置指示
             UI.Panel {
-                flexGrow = 1,
-                gap = 6,
+                id = "mapPlayerPos",
+                padding = 6,
+                backgroundColor = { 30, 50, 40, 200 },
+                borderRadius = 4,
                 children = {
-                    PhoneUI.MapItem("共享充电宝柜", "80m", "可能可用", { 50, 200, 50, 255 }),
-                    PhoneUI.MapItem("便利店", "150m", "营业中", { 200, 200, 50, 255 }),
-                    PhoneUI.MapItem("墙壁插座", "220m", "未知状态", { 150, 150, 150, 255 }),
-                    PhoneUI.MapItem("青年旅舍", "350m", "需认证", { 150, 100, 100, 255 }),
-                }
+                    UI.Label { id = "mapPosLabel", text = "当前位置: --", fontSize = 9, fontColor = { 130, 200, 130, 255 } },
+                },
             },
-            -- 底部广告（小字）
+            -- 动态列表
+            mapListPanel,
+            -- 底部广告
             UI.Label {
-                text = "广告：低电量焦虑？下载「电量守护」App",
+                text = "广告：充电困难？下载「闪电充」全城找桩",
                 fontSize = 8,
-                fontColor = { 150, 150, 150, 200 },
+                fontColor = { 140, 140, 140, 200 },
                 textAlign = "center",
             },
         }
@@ -319,23 +332,109 @@ function PhoneUI.CreateMapApp()
     return mapPanel
 end
 
+--- 刷新地图数据（每次打开地图App时调用）
+---@param playerX number 玩家世界X坐标
+function PhoneUI.RefreshMapData(playerX)
+    if not mapListPanel then return end
+    mapListPanel:ClearChildren()
+
+    -- 更新玩家位置标签
+    local posLabel = mapPanel:FindById("mapPosLabel")
+    if posLabel then
+        local posStr = string.format("当前位置: %.0fm", (playerX or 0))
+        posLabel:SetText(posStr)
+    end
+
+    -- 获取世界建筑/交互物数据
+    local WorldRenderer = require("WorldRenderer")
+    local PowerbankSystem = require("PowerbankSystem")
+    local items = WorldRenderer.GetInteractables()
+    if not items then return end
+
+    -- 按距离排序
+    local sortedItems = {}
+    for _, item in ipairs(items) do
+        -- 只显示有意义的地点（充电宝柜、网吧、杂货铺、插座）
+        if item.type == "powerbank" or item.type == "internet_cafe"
+            or item.type == "shop" or item.type == "outlet" then
+            local dist = math.abs((item.x or 0) - (playerX or 0))
+            table.insert(sortedItems, { item = item, dist = dist })
+        end
+    end
+    table.sort(sortedItems, function(a, b) return a.dist < b.dist end)
+
+    -- 生成列表项（最多显示8个）
+    local count = math.min(#sortedItems, 8)
+    for i = 1, count do
+        local entry = sortedItems[i]
+        local item = entry.item
+        local dist = entry.dist
+        local distStr = string.format("%.0fm", dist)
+
+        -- 确定名称、状态、颜色
+        local name, status, color = PhoneUI.GetMapItemInfo(item)
+
+        mapListPanel:AddChild(PhoneUI.MapItem(name, distStr, status, color))
+    end
+
+    -- 如果列表为空，显示提示
+    if count == 0 then
+        mapListPanel:AddChild(UI.Label {
+            text = "附近无充电设施",
+            fontSize = 10,
+            fontColor = { 150, 150, 150, 200 },
+            textAlign = "center",
+            marginTop = 20,
+        })
+    end
+end
+
+--- 根据交互物类型获取地图显示信息
+function PhoneUI.GetMapItemInfo(item)
+    local PowerbankSystem = require("PowerbankSystem")
+
+    if item.type == "powerbank" then
+        local stationId = item.stationId
+        local station = stationId and PowerbankSystem.GetById(stationId)
+        if station then
+            local stateLabel = PowerbankSystem.GetStateLabel(station.state)
+            if station.state == PowerbankSystem.State.AVAILABLE then
+                return "充电宝柜", stateLabel, { 50, 230, 50, 255 }
+            elseif station.state == PowerbankSystem.State.EMPTY then
+                return "充电宝柜", stateLabel, { 200, 200, 50, 255 }
+            else
+                return "充电宝柜", stateLabel, { 150, 60, 60, 255 }
+            end
+        end
+        return "充电宝柜", "状态未知", { 150, 150, 150, 255 }
+    elseif item.type == "internet_cafe" then
+        return "网吧 (有充电)", "可进入", { 100, 150, 255, 255 }
+    elseif item.type == "shop" then
+        return "杂货铺", "营业中", { 200, 180, 50, 255 }
+    elseif item.type == "outlet" then
+        return "墙壁插座", "可能有电", { 180, 130, 50, 255 }
+    end
+    return item.label or "未知", "", { 150, 150, 150, 255 }
+end
+
 function PhoneUI.MapItem(name, dist, status, color)
     return UI.Panel {
         flexDirection = "row",
         justifyContent = "space-between",
         alignItems = "center",
-        padding = 8,
-        backgroundColor = { 40, 50, 45, 255 },
-        borderRadius = 6,
+        padding = 7,
+        backgroundColor = { 35, 48, 42, 255 },
+        borderRadius = 5,
         children = {
             UI.Panel {
                 gap = 2,
+                flexShrink = 1,
                 children = {
                     UI.Label { text = name, fontSize = 11, fontColor = { 220, 220, 220, 255 } },
                     UI.Label { text = status, fontSize = 9, fontColor = color },
                 },
             },
-            UI.Label { text = dist, fontSize = 11, fontColor = { 150, 150, 150, 255 } },
+            UI.Label { text = dist, fontSize = 10, fontColor = { 130, 130, 130, 255 } },
         }
     }
 end
@@ -947,6 +1046,8 @@ function PhoneUI.OpenApp(appName)
         mapPanel:SetVisible(true)
         scanPanel:SetVisible(false)
         payPanel:SetVisible(false)
+        -- 打开地图时动态刷新数据
+        PhoneUI.RefreshMapData(cachedPlayerX)
     elseif appName == "scan" then
         mapPanel:SetVisible(false)
         scanPanel:SetVisible(true)
@@ -956,6 +1057,11 @@ function PhoneUI.OpenApp(appName)
         scanPanel:SetVisible(false)
         payPanel:SetVisible(true)
     end
+end
+
+--- 设置玩家世界位置（main.lua 每帧或打开手机时调用）
+function PhoneUI.SetPlayerPosition(x)
+    cachedPlayerX = x or 0
 end
 
 function PhoneUI.CloseApp()

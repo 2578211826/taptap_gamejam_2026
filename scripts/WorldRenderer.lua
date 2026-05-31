@@ -122,12 +122,15 @@ function WorldRenderer.Init(screenW, screenH)
 
         -- 添加可交互物品
         if buildingIndex == 2 then
+            -- 街道充电宝柜
             table.insert(interactables, {
                 type = "powerbank",
                 x = x + w / 2,
                 y = groundY,
                 label = "共享充电宝",
                 icon = "battery",
+                buildingIndex = buildingIndex,
+                stationId = "pb_street_" .. math.floor(x + w / 2),
             })
         elseif buildingIndex == 4 then
             table.insert(interactables, {
@@ -136,6 +139,7 @@ function WorldRenderer.Init(screenW, screenH)
                 y = groundY,
                 label = "杂货铺",
                 icon = "shop",
+                buildingIndex = buildingIndex,
             })
         elseif buildingIndex == 6 then
             table.insert(interactables, {
@@ -144,6 +148,7 @@ function WorldRenderer.Init(screenW, screenH)
                 y = groundY,
                 label = "墙壁插座",
                 icon = "plug",
+                buildingIndex = buildingIndex,
             })
         elseif buildingIndex == 3 or buildingIndex == 5 then
             table.insert(interactables, {
@@ -153,6 +158,29 @@ function WorldRenderer.Init(screenW, screenH)
                 label = "路人",
                 icon = "person",
                 npcIdx = (buildingIndex == 3) and 1 or 2,  -- 路人甲/乙
+                buildingIndex = buildingIndex,
+            })
+        end
+
+        -- 网吧（前10个建筑中，第7和第9个是网吧，可进入+有充电宝柜）
+        if buildingIndex == 7 or buildingIndex == 9 then
+            table.insert(interactables, {
+                type = "internet_cafe",
+                x = x + w / 2,
+                y = groundY,
+                label = "网吧",
+                icon = "cafe",
+                buildingIndex = buildingIndex,
+            })
+            -- 网吧门口也有一台充电宝柜
+            table.insert(interactables, {
+                type = "powerbank",
+                x = x + w / 2 + 50,
+                y = groundY,
+                label = "共享充电宝",
+                icon = "battery",
+                buildingIndex = buildingIndex,
+                stationId = "pb_cafe_" .. buildingIndex,
             })
         end
 

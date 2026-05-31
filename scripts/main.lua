@@ -1144,15 +1144,17 @@ end
 -- 扫码小游戏结果回调
 -- ====================================================================
 function HandleScanResult(result)
+    local restorePhase = gs.preScanPhase or Config.State.PLAYING
     if result == "success" then
         -- 扫码成功 → 先检查柜子是否仍然可用（可能在扫码期间被 tick 改变）
-        local stationId = gs.nearbyInteractable and gs.nearbyInteractable.stationId
+        local stationId = (gs.nearbyInteractable and gs.nearbyInteractable.stationId)
+            or ShopScene.GetPowerbankStationId()
         if stationId then
             local canUse, msg = PowerbankSystem.CanUse(stationId)
             if not canUse then
                 gs.phase = Config.State.EVENT
                 ShowMessage("借取失败", "扫码成功但...\n" .. msg, "运气真差", function()
-                    gs.phase = Config.State.PLAYING
+                    gs.phase = restorePhase
                 end)
                 return
             end
@@ -1172,11 +1174,14 @@ function HandleScanResult(result)
                 TriggerEnding(Config.Ending.WIN, "通过共享充电宝充电")
             else
                 ShowMessage("支付失败", "余额不足！需要¥99.99\n\n你明明扫上了...", "穷死了", function()
-                    gs.phase = Config.State.PLAYING
+                    gs.phase = restorePhase
                 end)
                 gs.stats.rejectCount = gs.stats.rejectCount + 1
             end
         end)
+    else
+        -- 扫码失败/取消 → 恢复之前状态
+        gs.phase = restorePhase
     end
 end
 
@@ -1222,10 +1227,14 @@ function HandlePhoneEvent(event)
 
     elseif event == "scan_qr" then
         -- 扫码逻辑 - 启动扫码小游戏
-        if gs.nearbyInteractable and gs.nearbyInteractable.type == "powerbank" then
+        -- 检查世界地图充电宝 或 商店内充电宝
+        local nearPowerbank = (gs.nearbyInteractable and gs.nearbyInteractable.type == "powerbank")
+        local shopPbId = ShopScene.GetPowerbankStationId()
+        if nearPowerbank or shopPbId then
             -- 立即关闭手机 UI（无动画），进入扫码小游戏
             PhoneUI.CloseInstant()
             gs.phoneOpen = false
+            gs.preScanPhase = gs.phase  -- 记住扫码前的状态（PLAYING 或 SHOP）
             gs.phase = Config.State.SCANNING
             ScanMiniGame.Start(gs.battery, HandleScanResult)
         else
@@ -1265,19 +1274,13 @@ function HandleInteract()
     local item = gs.nearbyInteractable
 
     if item.type == "powerbank" then
-        -- 先检查充电宝柜状态
-        local stationId = item.stationId
-        if stationId then
-            local canUse, msg = PowerbankSystem.CanUse(stationId)
-            if not canUse then
-                ShowMessage("充电宝柜", msg, "知道了")
-                return
-            end
+        -- F 键在充电宝附近 → 直接打开手机（和 Tab 相同效果）
+        if not gs.phoneOpen then
+            AudioManager.PhoneOpen()
+            gs.phoneOpen = true
+            PhoneUI.Open(gs, HandlePhoneEvent)
         end
-        -- 状态可用 → 提示打开手机扫码
-        ShowMessage("共享充电宝", "需要扫码才能使用\n请打开手机 → 扫码App", "好的", function()
-            -- 提示玩家打开手机
-        end)
+        return
 
     elseif item.type == "shop" then
         -- 进入商店室内场景
@@ -1335,7 +1338,7 @@ function HandleInteract()
             AudioManager.DoorExit()
             AudioManager.SetBGMForState(Config.State.PLAYING)
             gs.phase = Config.State.PLAYING
-        end)
+        end, item.interiorKey)
 
     elseif item.type == "npc" then
         AudioManager.Interact()
@@ -1843,12 +1846,33 @@ function UpdateActionHints()
     -- [F] 行
     if hasInteractable then
         local itemLabel = gs.nearbyInteractable.label or "交互"
-        -- 高亮：判断该物品是否需要用 F 交互（充电宝不用F，用Tab打开手机扫码）
-        local needsF = (gs.nearbyInteractable.type == "shop" or
+        -- 判断物品类型
+        local isPowerbank = (gs.nearbyInteractable.type == "powerbank")
+        local needsF = (isPowerbank or
+                        gs.nearbyInteractable.type == "shop" or
                         gs.nearbyInteractable.type == "outlet" or
                         gs.nearbyInteractable.type == "npc" or
                         gs.nearbyInteractable.type == "building" or
                         gs.nearbyInteractable.type == "internet_cafe")
+
+        -- 充电宝状态文字
+        local powerbankLabel = "充电宝（可用）"
+        if isPowerbank then
+            local stationId = gs.nearbyInteractable.stationId
+            if stationId then
+                local canUse, _ = PowerbankSystem.CanUse(stationId)
+                if not canUse then
+                    local station = PowerbankSystem.GetById(stationId)
+                    if station and station.state == PowerbankSystem.State.EMPTY then
+                        powerbankLabel = "充电宝（无剩余）"
+                    else
+                        powerbankLabel = "充电宝（离线）"
+                    end
+                end
+            end
+        end
+
+        -- [F] 行
         if needsF then
             hintF:SetStyle({
                 backgroundColor = { 40, 50, 80, 230 },
@@ -1857,7 +1881,8 @@ function UpdateActionHints()
             })
             if hintFKey then hintFKey:SetFontColor({ 100, 200, 255, 255 }) end
             if hintFText then
-                hintFText:SetText("交互 - " .. itemLabel)
+                local fLabel = isPowerbank and powerbankLabel or ("交互 - " .. itemLabel)
+                hintFText:SetText(fLabel)
                 hintFText:SetFontColor({ 220, 240, 255, 255 })
             end
         else
@@ -1873,8 +1898,8 @@ function UpdateActionHints()
             end
         end
 
-        -- [Tab] 行：如果附近有充电宝类型，提示需要打开手机扫码
-        local needsPhone = (gs.nearbyInteractable.type == "powerbank")
+        -- [Tab] 行：充电宝附近也高亮Tab
+        local needsPhone = isPowerbank
         if needsPhone then
             hintTab:SetStyle({
                 backgroundColor = { 40, 50, 80, 230 },
@@ -1883,7 +1908,7 @@ function UpdateActionHints()
             })
             if hintTabKey then hintTabKey:SetFontColor({ 100, 200, 255, 255 }) end
             if hintTabText then
-                hintTabText:SetText("打开手机 - 附近有充电宝")
+                hintTabText:SetText("打开手机 - " .. powerbankLabel)
                 hintTabText:SetFontColor({ 220, 240, 255, 255 })
             end
         else
@@ -2050,7 +2075,7 @@ function HandleKeyDown(eventType, eventData)
     if gs.phase == Config.State.SCANNING then
         if key == KEY_ESCAPE then
             ScanMiniGame.Stop()
-            gs.phase = Config.State.PLAYING
+            gs.phase = gs.preScanPhase or Config.State.PLAYING
         end
         return
     end
@@ -2148,7 +2173,22 @@ function HandleKeyDown(eventType, eventData)
                 elseif key == KEY_S or key == KEY_DOWN then
                     ShopScene.CounterNavigate(1)
                 elseif key == KEY_F or key == KEY_RETURN then
-                    ShopScene.CounterConfirm()
+                    local result = ShopScene.CounterConfirm()
+                    if result == "phone" then
+                        if not gs.phoneOpen then
+                            AudioManager.PhoneOpen()
+                            gs.phoneOpen = true
+                            PhoneUI.Open(gs, HandlePhoneEvent)
+                        end
+                    end
+                elseif key == KEY_TAB then
+                    -- 柜台对话中也允许 Tab 打开手机
+                    ShopScene.CloseCounter()
+                    if not gs.phoneOpen then
+                        AudioManager.PhoneOpen()
+                        gs.phoneOpen = true
+                        PhoneUI.Open(gs, HandlePhoneEvent)
+                    end
                 elseif key == KEY_ESCAPE then
                     ShopScene.CloseCounter()
                 end
@@ -2173,6 +2213,13 @@ function HandleKeyDown(eventType, eventData)
                 if key == KEY_F then
                     ShopScene.OnInteract()
                 elseif key == KEY_TAB then
+                    -- Tab 打开手机（商店内随时可用）
+                    if not gs.phoneOpen then
+                        AudioManager.PhoneOpen()
+                        gs.phoneOpen = true
+                        PhoneUI.Open(gs, HandlePhoneEvent)
+                    end
+                elseif key == KEY_Q then
                     ShopScene.ToggleInventoryMode()
                 elseif key == KEY_ESCAPE then
                     -- ESC离开也需要检查未付款物品
@@ -2614,7 +2661,7 @@ function RenderNPCDialogue(vg, sw, sh)
     -- 玩家（左侧）— 使用Q版精灵talk状态
     local playerCX = panelX + 70
     local playerCY = charAreaY + charAreaH - 10
-    local playerSpriteSize = 56
+    local playerSpriteSize = 79
     local playerDrawn = AssetMap.DrawImageBottom(vg, AssetMap.NPC.player.talk, playerCX, playerCY, playerSpriteSize, playerSpriteSize)
     if not playerDrawn then
         DrawStickFigure(vg, playerCX, playerCY, {60, 160, 255}, true)
@@ -2637,7 +2684,7 @@ function RenderNPCDialogue(vg, sw, sh)
             npcTalkSprite = AssetMap.NPC.office_worker.talk
         end
     end
-    local npcSpriteSize = 56
+    local npcSpriteSize = 79
     local npcDrawn = AssetMap.DrawImageBottom(vg, npcTalkSprite, npcCX, npcCY, npcSpriteSize, npcSpriteSize)
     if not npcDrawn then
         DrawStickFigure(vg, npcCX, npcCY, npcColor, false)  -- 回退火柴人
@@ -2879,7 +2926,7 @@ function RenderSlotGame(vg, sw, sh)
     elseif npcType == "bad" then npcColor = { 200, 80, 80 }
     end
     -- 玩家使用Q版精灵
-    local playerSlotDrawn = AssetMap.DrawImageBottom(vg, AssetMap.NPC.player.talk, playerCX, charY, 50, 50)
+    local playerSlotDrawn = AssetMap.DrawImageBottom(vg, AssetMap.NPC.player.talk, playerCX, charY, 71, 71)
     if not playerSlotDrawn then
         DrawStickFigure(vg, playerCX, charY, {60, 160, 255}, true)
     end
@@ -2893,7 +2940,7 @@ function RenderSlotGame(vg, sw, sh)
             slotNpcSprite = AssetMap.NPC.office_worker.talk
         end
     end
-    local slotNpcDrawn = AssetMap.DrawImageBottom(vg, slotNpcSprite, npcCX, charY, 50, 50)
+    local slotNpcDrawn = AssetMap.DrawImageBottom(vg, slotNpcSprite, npcCX, charY, 71, 71)
     if not slotNpcDrawn then
         DrawStickFigure(vg, npcCX, charY, npcColor, false)
     end

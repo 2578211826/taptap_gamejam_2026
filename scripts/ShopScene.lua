@@ -180,6 +180,13 @@ function ShopScene.IsActive()
     return active
 end
 
+function ShopScene.GetPowerbankStationId()
+    if active and hasPowerbank then
+        return shopStationId
+    end
+    return nil
+end
+
 -- ====================================================================
 -- 更新
 -- ====================================================================
@@ -515,6 +522,9 @@ function ShopScene.CounterConfirm()
 
     if option.action == "close" then
         ShopScene.CloseCounter()
+    elseif option.action == "phone" then
+        ShopScene.CloseCounter()
+        return "phone"
     elseif option.action == "pay" then
         -- 尝试付款
         if gameState.money >= option.total then
@@ -705,53 +715,94 @@ function ShopScene.Render(nvgCtx, sw, sh)
     screenH = sh
     FLOOR_Y = screenH - 100
 
-    -- 背景（室内墙壁）
+    -- ============================================================
+    -- 背景层渲染：墙壁(纯深色) + 天花板(暗色条带+锯齿边缘) + 地板(暗色条带+锯齿边缘)
+    -- ============================================================
+
+    -- 1. 墙壁：纯深色底色（整屏填充作为最底层）
     nvgBeginPath(nvgCtx)
     nvgRect(nvgCtx, 0, 0, screenW, screenH)
-    nvgFillColor(nvgCtx, nvgRGBA(240, 235, 225, 255))
+    nvgFillColor(nvgCtx, nvgRGBA(45, 40, 38, 255))
     nvgFill(nvgCtx)
 
-    -- 地板
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, 0, FLOOR_Y, screenW, screenH - FLOOR_Y)
-    nvgFillColor(nvgCtx, nvgRGBA(180, 140, 100, 255))
-    nvgFill(nvgCtx)
-
-    -- 地板格子纹
-    nvgStrokeColor(nvgCtx, nvgRGBA(160, 120, 80, 100))
-    nvgStrokeWidth(nvgCtx, 1)
-    for i = 0, math.ceil(screenW / 50) do
+    -- 2. 天花板暗色条带（顶部，水平平铺不拉伸，512×217原始比例）
+    local ceilBandH = CEILING_H              -- 条带占满天花板区域
+    local ceilBandHandle = AssetMap.GetImage(nvgCtx, AssetMap.ShopInterior.ceiling_band)
+    if ceilBandHandle and ceilBandHandle > 0 then
+        -- 保持原始宽高比平铺：高度=ceilBandH，宽度按比例
+        local tileW = ceilBandH * (512 / 217)
+        local paint = nvgImagePattern(nvgCtx, 0, 0, tileW, ceilBandH, 0, ceilBandHandle, 1.0)
         nvgBeginPath(nvgCtx)
-        nvgMoveTo(nvgCtx, i * 50, FLOOR_Y)
-        nvgLineTo(nvgCtx, i * 50, screenH)
-        nvgStroke(nvgCtx)
+        nvgRect(nvgCtx, 0, 0, screenW, ceilBandH)
+        nvgFillPaint(nvgCtx, paint)
+        nvgFill(nvgCtx)
+    else
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, 0, screenW, ceilBandH)
+        nvgFillColor(nvgCtx, nvgRGBA(35, 32, 30, 255))
+        nvgFill(nvgCtx)
     end
 
-    -- 天花板
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, 0, 0, screenW, CEILING_H)
-    nvgFillColor(nvgCtx, nvgRGBA(60, 55, 50, 255))
-    nvgFill(nvgCtx)
+    -- 3. 天花板锯齿边缘（条带下方，水平平铺，2048×100）
+    local ceilEdgeH = 28   -- 锯齿边缘显示高度
+    local ceilEdgeY = ceilBandH - ceilEdgeH * 0.6  -- 60%隐藏在条带后面，只露出底部锯齿尖端
+    local ceilEdgeHandle = AssetMap.GetImage(nvgCtx, AssetMap.ShopInterior.ceiling_edge)
+    if ceilEdgeHandle and ceilEdgeHandle > 0 then
+        local tileW = ceilEdgeH * (2048 / 100)
+        local paint = nvgImagePattern(nvgCtx, 0, ceilEdgeY, tileW, ceilEdgeH, 0, ceilEdgeHandle, 1.0)
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, ceilEdgeY, screenW, ceilEdgeH)
+        nvgFillPaint(nvgCtx, paint)
+        nvgFill(nvgCtx)
+    end
 
-    -- 日光灯
+    -- 4. 地板暗色条带（底部，水平平铺不拉伸，512×217原始比例）
+    local floorH = screenH - FLOOR_Y
+    local floorBandHandle = AssetMap.GetImage(nvgCtx, AssetMap.ShopInterior.floor_band)
+    if floorBandHandle and floorBandHandle > 0 then
+        local tileW = floorH * (512 / 217)
+        local paint = nvgImagePattern(nvgCtx, 0, FLOOR_Y, tileW, floorH, 0, floorBandHandle, 1.0)
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, FLOOR_Y, screenW, floorH)
+        nvgFillPaint(nvgCtx, paint)
+        nvgFill(nvgCtx)
+    else
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, FLOOR_Y, screenW, floorH)
+        nvgFillColor(nvgCtx, nvgRGBA(25, 22, 20, 255))
+        nvgFill(nvgCtx)
+    end
+
+    -- 5. 地板锯齿边缘（地板上方，水平平铺，2048×100）
+    local floorEdgeH = 28
+    local floorEdgeY = FLOOR_Y - floorEdgeH * 0.4  -- 60%隐藏在地板条带后面，只露出顶部锯齿尖端
+    local floorEdgeHandle = AssetMap.GetImage(nvgCtx, AssetMap.ShopInterior.floor_edge)
+    if floorEdgeHandle and floorEdgeHandle > 0 then
+        local tileW = floorEdgeH * (2048 / 100)
+        local paint = nvgImagePattern(nvgCtx, 0, floorEdgeY, tileW, floorEdgeH, 0, floorEdgeHandle, 1.0)
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, 0, floorEdgeY, screenW, floorEdgeH)
+        nvgFillPaint(nvgCtx, paint)
+        nvgFill(nvgCtx)
+    end
+
+    -- 6. 日光灯（使用精灵图）
     for i = 1, 3 do
         local lx = screenW * i / 4
-        nvgBeginPath(nvgCtx)
-        nvgRect(nvgCtx, lx - 40, CEILING_H - 8, 80, 6)
-        nvgFillColor(nvgCtx, nvgRGBA(255, 255, 240, 230))
-        nvgFill(nvgCtx)
+        local lampW, lampH = 80, 53
+        local drawn = AssetMap.DrawImage(nvgCtx, AssetMap.ShopInterior.lamp, lx - lampW / 2, CEILING_H - lampH + 5, lampW, lampH)
+        if not drawn then
+            nvgBeginPath(nvgCtx)
+            nvgRect(nvgCtx, lx - 40, CEILING_H - 8, 80, 6)
+            nvgFillColor(nvgCtx, nvgRGBA(255, 255, 240, 230))
+            nvgFill(nvgCtx)
+        end
         -- 灯光光晕
         nvgBeginPath(nvgCtx)
         nvgRect(nvgCtx, lx - 50, CEILING_H, 100, 15)
         nvgFillColor(nvgCtx, nvgRGBA(255, 255, 200, 30))
         nvgFill(nvgCtx)
     end
-
-    -- 后墙装饰线
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, 0, CEILING_H, screenW, 3)
-    nvgFillColor(nvgCtx, nvgRGBA(120, 100, 80, 200))
-    nvgFill(nvgCtx)
 
     -- 门（左侧）
     RenderDoor(nvgCtx)
@@ -801,24 +852,18 @@ end
 -- ====================================================================
 function RenderDoor(nvgCtx)
     local dx = DOOR_X
-    local dw = 50
-    local dh = 90
+    -- 门精灵 343×512，按比例缩放，底部对齐地面
+    local dh = 130    -- 显示高度
+    local dw = dh * (343 / 512)  -- ~87
     local dy = FLOOR_Y - dh
-    -- 门框
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, dx - 3, dy - 3, dw + 6, dh + 3)
-    nvgFillColor(nvgCtx, nvgRGBA(80, 60, 40, 255))
-    nvgFill(nvgCtx)
-    -- 门板
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, dx, dy, dw, dh)
-    nvgFillColor(nvgCtx, nvgRGBA(140, 100, 60, 255))
-    nvgFill(nvgCtx)
-    -- 门把手
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, dx + dw - 10, dy + dh / 2, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(200, 180, 50, 255))
-    nvgFill(nvgCtx)
+
+    local drawn = AssetMap.DrawImage(nvgCtx, AssetMap.ShopInterior.door, dx, dy, dw, dh)
+    if not drawn then
+        nvgBeginPath(nvgCtx)
+        nvgRect(nvgCtx, dx, dy, dw, dh)
+        nvgFillColor(nvgCtx, nvgRGBA(100, 75, 50, 255))
+        nvgFill(nvgCtx)
+    end
     -- 门上方"出口"标志
     nvgFontSize(nvgCtx, 9)
     nvgFontFace(nvgCtx, "sans")
@@ -828,100 +873,70 @@ function RenderDoor(nvgCtx)
 end
 
 function RenderShelf(nvgCtx, shelf)
+    -- 货架精灵图 300×402（竖版），保持比例渲染，底部对齐地面
+    local shelfSpriteMap = {
+        snack       = AssetMap.ShopInterior.shelf_snack,
+        stationery  = AssetMap.ShopInterior.shelf_stationery,
+        electronics = AssetMap.ShopInterior.shelf_electronics,
+        charger     = AssetMap.ShopInterior.shelf_charger,
+    }
+    local spritePath = shelfSpriteMap[shelf.category]
+    if not spritePath then return end
+
+    -- 保持原始宽高比 300:402，用 shelf.w 计算高度
+    local shelfAspect = 300 / 402
+    local sw = shelf.w                    -- 使用布局定义的宽度
+    local sh = sw / shelfAspect           -- 按比例计算高度 ~134
     local sx = shelf.x
-    local sh = 130
-    local sy = FLOOR_Y - sh
+    local sy = FLOOR_Y - sh              -- 底部对齐地面
 
-    -- 货架背板
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, sx, sy, shelf.w, sh)
-    nvgFillColor(nvgCtx, nvgRGBA(200, 180, 150, 255))
-    nvgFill(nvgCtx)
-    -- 边框
-    nvgStrokeColor(nvgCtx, nvgRGBA(120, 90, 60, 255))
-    nvgStrokeWidth(nvgCtx, 1.5)
-    nvgStroke(nvgCtx)
+    local drawn = AssetMap.DrawImage(nvgCtx, spritePath, sx, sy, sw, sh)
 
-    -- 层板线（3层）
-    for row = 1, 3 do
-        local ly = sy + row * (sh / 4)
+    if not drawn then
+        -- 回退：纯色货架
         nvgBeginPath(nvgCtx)
-        nvgMoveTo(nvgCtx, sx, ly)
-        nvgLineTo(nvgCtx, sx + shelf.w, ly)
-        nvgStrokeColor(nvgCtx, nvgRGBA(120, 90, 60, 200))
-        nvgStrokeWidth(nvgCtx, 1)
+        nvgRect(nvgCtx, sx, sy, sw, sh)
+        nvgFillColor(nvgCtx, nvgRGBA(80, 65, 45, 255))
+        nvgFill(nvgCtx)
+        nvgStrokeColor(nvgCtx, nvgRGBA(60, 45, 30, 255))
+        nvgStrokeWidth(nvgCtx, 1.5)
         nvgStroke(nvgCtx)
-    end
-
-    -- 商品色块（3层×3列）
-    local tierH = sh / 4
-    for row = 1, 3 do
-        local ly = sy + row * tierH
-        local itemCount = 3
-        local itemW = (shelf.w - 16) / itemCount
-        for col = 1, itemCount do
-            local ix = sx + 6 + (col - 1) * (itemW + 2)
-            local iy = ly - tierH + 10
-            local iw = itemW - 2
-            local ih = tierH - 14
-
-            local colors = {
-                snack = { { 255, 80, 80 }, { 255, 200, 50 }, { 100, 200, 100 } },
-                stationery = { { 50, 100, 200 }, { 200, 100, 200 }, { 100, 200, 200 } },
-                electronics = { { 40, 40, 50 }, { 60, 60, 70 }, { 30, 30, 40 } },
-                charger = { { 255, 255, 255 }, { 40, 40, 40 }, { 50, 150, 255 } },
-            }
-            local cList = colors[shelf.category] or colors.snack
-            local c = cList[((row - 1) * itemCount + col - 1) % #cList + 1]
-
-            nvgBeginPath(nvgCtx)
-            nvgRoundedRect(nvgCtx, ix, iy, iw, ih, 2)
-            nvgFillColor(nvgCtx, nvgRGBA(c[1], c[2], c[3], 200))
-            nvgFill(nvgCtx)
-        end
     end
 
     -- 货架标签
     nvgFontSize(nvgCtx, 10)
     nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
-    nvgFillColor(nvgCtx, nvgRGBA(80, 60, 40, 255))
-    nvgText(nvgCtx, sx + shelf.w / 2, FLOOR_Y + 5, shelf.label)
+    nvgFillColor(nvgCtx, nvgRGBA(200, 190, 170, 255))
+    nvgText(nvgCtx, sx + sw / 2, FLOOR_Y + 5, shelf.label)
 end
 
 function RenderCounter(nvgCtx)
     local cx = COUNTER_X
-    local cw = 100
-    local ch = 60
+    -- 收银台精灵 402×300，按地面对齐渲染（含收银机）
+    local counterAspect = 402 / 300
+    local ch = 90    -- 显示高度
+    local cw = ch * counterAspect  -- 按原始比例计算宽度 ~120
     local cy = FLOOR_Y - ch
 
-    -- 柜台
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, cx, cy, cw, ch, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(100, 70, 40, 255))
-    nvgFill(nvgCtx)
-    -- 柜台面板
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, cx + 5, cy + 5, cw - 10, 15)
-    nvgFillColor(nvgCtx, nvgRGBA(140, 110, 70, 255))
-    nvgFill(nvgCtx)
-
-    -- 收银机
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, cx + 35, cy - 25, 30, 25, 3)
-    nvgFillColor(nvgCtx, nvgRGBA(60, 60, 70, 255))
-    nvgFill(nvgCtx)
-    -- 收银机屏幕
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, cx + 38, cy - 22, 18, 10)
-    nvgFillColor(nvgCtx, nvgRGBA(100, 200, 100, 200))
-    nvgFill(nvgCtx)
+    local counterDrawn = AssetMap.DrawImage(nvgCtx, AssetMap.ShopInterior.counter, cx, cy, cw, ch)
+    if not counterDrawn then
+        -- 回退：纯色柜台+收银机
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, cx, cy + 30, cw, ch - 30, 4)
+        nvgFillColor(nvgCtx, nvgRGBA(100, 70, 40, 255))
+        nvgFill(nvgCtx)
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, cx + cw * 0.35, cy + 5, 30, 25, 3)
+        nvgFillColor(nvgCtx, nvgRGBA(60, 60, 70, 255))
+        nvgFill(nvgCtx)
+    end
 
     -- 店员（使用Q版纸片人精灵图）
     local npcX = cx + cw + 20
     local npcY = FLOOR_Y
     local clerkSprite = AssetMap.NPC.clerk.idle
-    local clerkW, clerkH = 64, 64
+    local clerkW, clerkH = 90, 90
     local drawn = AssetMap.DrawImageBottom(nvgCtx, clerkSprite, npcX, npcY, clerkW, clerkH)
     if not drawn then
         -- 回退：简单矩形
@@ -937,85 +952,17 @@ function RenderCounter(nvgCtx)
 end
 
 function RenderShopPowerbank(nvgCtx)
-    -- 充电宝柜：绿色立柜，LED指示灯
+    -- 充电宝柜：使用贴图素材（和大地图一致）
+    local bw = 60
+    local bh = 108
     local bx = powerbankX
-    local bw = 44
-    local bh = 80
-    local by = FLOOR_Y - bh
-
-    -- 柜体
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, bx, by, bw, bh, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 120, 60, 255))
-    nvgFill(nvgCtx)
-    nvgStrokeColor(nvgCtx, nvgRGBA(20, 80, 40, 255))
-    nvgStrokeWidth(nvgCtx, 1.5)
-    nvgStroke(nvgCtx)
-
-    -- 顶部品牌条
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, bx + 3, by + 4, bw - 6, 12)
-    nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 220))
-    nvgFill(nvgCtx)
-    nvgFontSize(nvgCtx, 8)
-    nvgFontFace(nvgCtx, "sans")
-    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 120, 60, 255))
-    nvgText(nvgCtx, bx + bw / 2, by + 10, "充电宝")
-
-    -- 充电宝槽位（4个小矩形模拟）
-    local slotH = 10
-    local slotGap = 3
-    local slotStartY = by + 22
-    for i = 1, 4 do
-        local sy = slotStartY + (i - 1) * (slotH + slotGap)
-        nvgBeginPath(nvgCtx)
-        nvgRoundedRect(nvgCtx, bx + 6, sy, bw - 12, slotH, 2)
-        nvgFillColor(nvgCtx, nvgRGBA(30, 30, 40, 200))
-        nvgFill(nvgCtx)
-        -- 充电宝条（部分槽有充电宝）
-        if i <= 3 then
-            nvgBeginPath(nvgCtx)
-            nvgRoundedRect(nvgCtx, bx + 7, sy + 1, bw - 14, slotH - 2, 2)
-            nvgFillColor(nvgCtx, nvgRGBA(200, 200, 210, 230))
-            nvgFill(nvgCtx)
-        end
-    end
-
-    -- 状态LED指示灯
-    local PowerbankSystem = require("PowerbankSystem")
-    local station = PowerbankSystem.GetById(shopStationId)
-    local ledColor
-    if station and station.state == PowerbankSystem.State.AVAILABLE then
-        ledColor = nvgRGBA(0, 255, 80, 255)  -- 绿色=可用
-    elseif station and station.state == PowerbankSystem.State.EMPTY then
-        ledColor = nvgRGBA(255, 200, 0, 255)  -- 黄色=空柜
-    else
-        ledColor = nvgRGBA(255, 50, 50, 255)  -- 红色=离线
-    end
-
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, bx + bw / 2, by + bh - 12, 4)
-    nvgFillColor(nvgCtx, ledColor)
-    nvgFill(nvgCtx)
-
-    -- LED 光晕
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, bx + bw / 2, by + bh - 12, 7)
-    nvgFillColor(nvgCtx, nvgRGBA(0, 255, 80, 30))
-    nvgFill(nvgCtx)
-
-    -- 底部扫码标识
-    nvgFontSize(nvgCtx, 7)
-    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgFillColor(nvgCtx, nvgRGBA(200, 255, 200, 200))
-    nvgText(nvgCtx, bx + bw / 2, by + bh - 3, "扫码借")
+    AssetMap.DrawImageBottom(nvgCtx, AssetMap.Interactables.powerbank, bx + bw / 2, FLOOR_Y, bw, bh)
 end
 
 function RenderShopPlayer(nvgCtx)
     local px = playerX
     local py = FLOOR_Y
-    local size = 64
+    local size = 90
     local drawn = AssetMap.DrawImageBottom(nvgCtx, AssetMap.NPC.player.idle, px, py, size, size)
     if not drawn then
         -- 回退：简笔画

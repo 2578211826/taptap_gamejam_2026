@@ -46,16 +46,22 @@ AssetMap.Items = {
 -- 杂货铺室内组件
 -- ====================================================================
 AssetMap.ShopInterior = {
-    wall       = "image/杂货铺_墙壁纹理_20260530171133.png",       -- 516×288
-    floor      = "image/杂货铺_地板纹理_20260530171351.png",       -- 256×191
-    ceiling    = "image/杂货铺_天花板纹理_20260530171133.png",     -- 512×217
-    lamp       = "image/杂货铺_日光灯_20260530171203.png",         -- 80×53
-    door       = "image/杂货铺_木门_20260530171217.png",           -- 85×128
-    shelf      = "image/杂货铺_货架_20260530171519.png",           -- 128×192
-    counter    = "image/杂货铺_收银台_20260530171534.png",         -- 160×107
-    register   = "image/杂货铺_收银机_20260530171530.png",         -- 48×48
-    wall_ads   = "image/杂货铺_墙上广告_20260530171522.png",       -- 144×96
-    boxes      = "image/杂货铺_纸箱堆_20260530171528.png",         -- 64×64
+    -- 背景层（天花板/地板暗色条带 512×217，锯齿边缘 2048×100）
+    ceiling_band  = "image/shop_interior/天花板_纯暗色条带_20260531012044.png",
+    ceiling_edge  = "image/shop_interior/天花板_锯齿边缘_cropped.png",
+    floor_band    = "image/shop_interior/地面_纯暗色条带_20260531011929.png",
+    floor_edge    = "image/shop_interior/地面_锯齿边缘_cropped.png",
+    -- 物件精灵
+    lamp       = "image/shop_interior/杂货铺_日光灯_20260531025209.png",
+    door       = "image/shop_interior/杂货铺_出口门_20260530180725.png",
+    counter    = "image/shop_interior/杂货铺_收银台_20260530180816.png",   -- 402×300（含收银机）
+    wall_ads   = "image/shop_interior/杂货铺_墙面海报_20260531025211.png",
+    boxes      = "image/shop_interior/杂货铺_纸箱堆_20260531025225.png",
+    -- 分类货架精灵（300×402 竖版）
+    shelf_snack       = "image/shop_interior/杂货铺_货架_零食饮料_20260530182429.png",
+    shelf_stationery  = "image/shop_interior/杂货铺_货架_日用文具_20260530182431.png",
+    shelf_electronics = "image/shop_interior/杂货铺_货架_电子配件_20260530182531.png",
+    shelf_charger     = "image/shop_interior/杂货铺_货架_充电设备_20260530182524.png",
 }
 
 -- ====================================================================
@@ -116,7 +122,7 @@ AssetMap.Props = {
 }
 
 -- ====================================================================
--- 建筑 (286×512 透明背景)
+-- 建筑贴图原始列表（仅供注册表引用）
 -- ====================================================================
 AssetMap.Buildings = {
     { path = "image/buildings/建筑_便利店_20260530110909.png", w = 286, h = 354 },
@@ -128,6 +134,74 @@ AssetMap.Buildings = {
     { path = "image/buildings/建筑_写字楼_20260530111109.png", w = 286, h = 453 },
     { path = "image/buildings/建筑_KTV_20260530111111.png",   w = 286, h = 383 },
 }
+
+-- ====================================================================
+-- 🏢 统一建筑注册表（贴图 + 名称 + 场景处理器 + 室内配置 全部绑定）
+-- ====================================================================
+-- handler: "shop" = 杂货铺(ShopScene), "cafe" = 网吧(InternetCafeScene), "generic" = 通用室内
+-- interiorKey: 对应 GenericInteriorScene.BuildingConfigs 的 key（仅 handler="generic" 时使用）
+-- ====================================================================
+AssetMap.BuildingRegistry = {
+    shop = {
+        texIdx = 1,  -- 便利店贴图
+        name = "杂货铺",
+        icon = "shop",
+        handler = "shop",        -- ShopScene 专属
+        interiorKey = nil,
+    },
+    cafe = {
+        texIdx = 2,  -- 网吧贴图
+        name = "网吧",
+        icon = "cafe",
+        handler = "cafe",        -- InternetCafeScene 专属
+        interiorKey = nil,
+    },
+    residential = {
+        texIdx = 3,  -- 居民楼A贴图
+        name = "居民楼门厅",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "residential",
+    },
+    pharmacy = {
+        texIdx = 4,  -- 药房贴图
+        name = "药房",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "pharmacy",
+    },
+    abandoned = {
+        texIdx = 5,  -- 废弃店面贴图
+        name = "废弃店面",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "abandoned",
+    },
+    ramen = {
+        texIdx = 6,  -- 拉面店贴图
+        name = "拉面店",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "ramen",
+    },
+    office = {
+        texIdx = 7,  -- 写字楼贴图
+        name = "写字楼大厅",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "office",
+    },
+    ktv = {
+        texIdx = 8,  -- KTV贴图
+        name = "KTV",
+        icon = "building",
+        handler = "generic",
+        interiorKey = "ktv",
+    },
+}
+
+-- 通用建筑池（随机抽取用，不含 shop/cafe 这两种固定建筑）
+AssetMap.GenericBuildingPool = { "residential", "pharmacy", "abandoned", "ramen", "office", "ktv" }
 
 -- ====================================================================
 -- 环境

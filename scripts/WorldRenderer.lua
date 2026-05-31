@@ -80,28 +80,69 @@ function WorldRenderer.Init(screenW, screenH)
     -- 恢复随机种子
     math.randomseed(os.time())
 
-    -- 生成城市建筑
+    -- ===== 生成城市建筑（统一从 BuildingRegistry 抽取） =====
     local x = 0
     local buildingIndex = 0
     worldWidth = screenW * 4 -- 4 屏幕宽的地图
-    local numBuildingTextures = #AssetMap.Buildings
+    local Registry = AssetMap.BuildingRegistry
+    local GenericPool = AssetMap.GenericBuildingPool
+
+    -- 预规划前 10 个建筑的注册表分配
+    -- 规则：保证 2 个便利店 + 2 个网吧，其余从通用池随机
+    local buildingPlan = {}  -- [slot] = registryKey
+    -- 固定位置：slot 3,8 = shop，slot 5,9 = cafe
+    buildingPlan[3] = "shop"
+    buildingPlan[8] = "shop"
+    buildingPlan[5] = "cafe"
+    buildingPlan[9] = "cafe"
+    -- 其余前10位从通用池随机填充（不重复直到池用完再循环）
+    local poolCopy = {}
+    for i, v in ipairs(GenericPool) do poolCopy[i] = v end
+    local function shufflePool(t)
+        for i = #t, 2, -1 do
+            local j = math.random(1, i)
+            t[i], t[j] = t[j], t[i]
+        end
+    end
+    shufflePool(poolCopy)
+    local poolCursor = 1
+    local function nextFromPool()
+        local key = poolCopy[poolCursor]
+        poolCursor = poolCursor + 1
+        if poolCursor > #poolCopy then
+            poolCursor = 1
+            shufflePool(poolCopy)
+        end
+        return key
+    end
+    for slot = 1, 10 do
+        if not buildingPlan[slot] then
+            buildingPlan[slot] = nextFromPool()
+        end
+    end
+
+    -- 额外街道装置分配（充电宝柜、插座、路人NPC）
+    -- 这些放在建筑间隙而非建筑入口
+    local streetExtras = {
+        [2] = "powerbank",   -- 第2栋旁边放充电宝柜
+        [4] = "npc",         -- 第4栋旁边放路人
+        [6] = "outlet",      -- 第6栋旁边放插座
+        [7] = "npc",         -- 第7栋旁边放路人
+    }
 
     while x < worldWidth do
         buildingIndex = buildingIndex + 1
         local w = math.random(100, 200)
         local h = math.random(Config.World.BuildingMinHeight, Config.World.BuildingMaxHeight)
 
-        -- 分配建筑贴图（特殊建筑强制指定，其余循环使用）
-        local texIdx
-        if buildingIndex == 7 or buildingIndex == 9 then
-            texIdx = 2  -- AssetMap.Buildings[2] = 网吧
-        elseif buildingIndex == 4 then
-            texIdx = 1  -- AssetMap.Buildings[1] = 便利店
-        else
-            texIdx = ((buildingIndex - 1) % numBuildingTextures) + 1
-            -- 避免非特殊建筑意外使用便利店/网吧贴图
-            if texIdx == 1 or texIdx == 2 then texIdx = 3 end
+        -- 从注册表获取当前建筑的完整信息
+        local regKey = buildingPlan[buildingIndex]
+        if not regKey then
+            -- 超过预规划范围（第11栋起）：从通用池随机
+            regKey = nextFromPool()
         end
+        local entry = Registry[regKey]
+        local texInfo = AssetMap.Buildings[entry.texIdx]
 
         -- 预生成窗户亮灭状态（贴图建筑上叠加的发光窗户效果）
         local winCols = math.floor((w - 20) / (12 + 8))
@@ -114,7 +155,6 @@ function WorldRenderer.Init(screenW, screenH)
             end
         end
 
-        local texInfo = AssetMap.Buildings[texIdx]
         local building = {
             x = x,
             y = groundY - h,
@@ -129,61 +169,28 @@ function WorldRenderer.Init(screenW, screenH)
         }
         table.insert(buildings, building)
 
-        -- 添加可交互物品
-        if buildingIndex == 2 then
-            -- 街道充电宝柜（放在建筑右侧间隙，不与建筑重叠）
-            table.insert(interactables, {
-                type = "powerbank",
-                x = x + w + 25,
-                y = groundY,
-                label = "共享充电宝",
-                icon = "battery",
-                buildingIndex = buildingIndex,
-                stationId = "pb_street_" .. math.floor(x + w + 25),
-            })
-        elseif buildingIndex == 4 then
+        -- 创建建筑入口交互物（根据 handler 类型）
+        if entry.handler == "shop" then
             table.insert(interactables, {
                 type = "shop",
                 x = x + w / 2,
                 y = groundY,
-                label = "杂货铺",
-                icon = "shop",
+                label = entry.name,
+                icon = entry.icon,
                 buildingIndex = buildingIndex,
+                registryKey = regKey,
             })
-        elseif buildingIndex == 6 then
-            table.insert(interactables, {
-                type = "outlet",
-                x = x + w + 25,  -- 放在建筑右侧间隙
-                y = groundY,
-                label = "墙壁插座",
-                icon = "plug",
-                buildingIndex = buildingIndex,
-            })
-        elseif buildingIndex == 3 or buildingIndex == 5 then
-            -- 从NPCPool随机选一个路人精灵
-            local poolIdx = math.random(1, #AssetMap.NPCPool)
-            table.insert(interactables, {
-                type = "npc",
-                x = x + w + 25,  -- 放在建筑右侧间隙，不与建筑重叠
-                y = groundY,
-                label = "路人",
-                icon = "person",
-                npcPoolIdx = poolIdx,  -- 随机池索引
-                buildingIndex = buildingIndex,
-            })
-        end
-
-        -- 网吧（前10个建筑中，第7和第9个是网吧，可进入+有充电宝柜）
-        if buildingIndex == 7 or buildingIndex == 9 then
+        elseif entry.handler == "cafe" then
             table.insert(interactables, {
                 type = "internet_cafe",
                 x = x + w / 2,
                 y = groundY,
-                label = "网吧",
-                icon = "cafe",
+                label = entry.name,
+                icon = entry.icon,
                 buildingIndex = buildingIndex,
+                registryKey = regKey,
             })
-            -- 网吧旁边的充电宝柜（放在建筑右侧间隙，不与建筑重叠）
+            -- 网吧旁边自带充电宝柜
             table.insert(interactables, {
                 type = "powerbank",
                 x = x + w + 25,
@@ -193,23 +200,51 @@ function WorldRenderer.Init(screenW, screenH)
                 buildingIndex = buildingIndex,
                 stationId = "pb_cafe_" .. buildingIndex,
             })
+        elseif entry.handler == "generic" then
+            table.insert(interactables, {
+                type = "building",
+                x = x + w / 2,
+                y = groundY,
+                label = entry.name,
+                icon = entry.icon,
+                buildingIndex = buildingIndex,
+                registryKey = regKey,
+                interiorKey = entry.interiorKey,
+            })
         end
 
-        -- 通用建筑（非专属场景的都可以进入）
-        -- 排除: 4=杂货铺(ShopScene), 7/9=网吧(InternetCafeScene)
-        if buildingIndex ~= 4 and buildingIndex ~= 7 and buildingIndex ~= 9 then
-            local GenericInteriorScene = require("GenericInteriorScene")
-            if GenericInteriorScene.ShouldHandle(buildingIndex) then
-                local cfg = GenericInteriorScene.GetConfig(buildingIndex)
-                table.insert(interactables, {
-                    type = "building",
-                    x = x + w / 2,
-                    y = groundY,
-                    label = cfg.name,
-                    icon = "building",
-                    buildingIndex = buildingIndex,
-                })
-            end
+        -- 街道额外装置（充电宝柜、插座、路人NPC 放在建筑间隙）
+        local extra = streetExtras[buildingIndex]
+        if extra == "powerbank" then
+            table.insert(interactables, {
+                type = "powerbank",
+                x = x + w + 25,
+                y = groundY,
+                label = "共享充电宝",
+                icon = "battery",
+                buildingIndex = buildingIndex,
+                stationId = "pb_street_" .. math.floor(x + w + 25),
+            })
+        elseif extra == "outlet" then
+            table.insert(interactables, {
+                type = "outlet",
+                x = x + w + 25,
+                y = groundY,
+                label = "墙壁插座",
+                icon = "plug",
+                buildingIndex = buildingIndex,
+            })
+        elseif extra == "npc" then
+            local poolIdx = math.random(1, #AssetMap.NPCPool)
+            table.insert(interactables, {
+                type = "npc",
+                x = x + w + 25,
+                y = groundY,
+                label = "路人",
+                icon = "person",
+                npcPoolIdx = poolIdx,
+                buildingIndex = buildingIndex,
+            })
         end
 
         -- 在建筑间隙放置街道道具和路灯
@@ -476,7 +511,7 @@ function WorldRenderer.RenderInteractables(nvg, cameraX, screenW)
                 -- NPC贴图：从随机池选取精灵（512x512正方形）
                 local poolIdx = item.npcPoolIdx or 1
                 local npcPath = AssetMap.NPCPool[poolIdx] or AssetMap.NPCPool[1]
-                drawn = AssetMap.DrawImageBottom(nvg, npcPath, sx, iy, 56, 56)
+                drawn = AssetMap.DrawImageBottom(nvg, npcPath, sx, iy, 79, 79)
                 if not drawn then
                     -- 回退：简笔画小人
                     nvgBeginPath(nvg)
@@ -504,7 +539,7 @@ end
 function WorldRenderer.RenderPlayer(nvg, px, py, facingRight, phoneOpen)
     -- Q版玩家精灵（512x512正方形）
     local playerSprite = phoneOpen and AssetMap.NPC.player.idle or AssetMap.NPC.player.walk
-    local size = 56
+    local size = 79
     local drawn = AssetMap.DrawImageBottom(nvg, playerSprite, px, py, size, size)
     if not drawn then
         -- 回退：简笔画

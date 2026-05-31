@@ -567,7 +567,7 @@ function RenderNPC(nvgCtx)
 
     -- NPC（使用奸商精灵图）
     local merchantSprite = AssetMap.NPC.merchant.idle
-    local npcW, npcH = 64, 64
+    local npcW, npcH = 90, 90
     local drawn = AssetMap.DrawImageBottom(nvgCtx, merchantSprite, npcX, npcY, npcW, npcH)
     if not drawn then
         -- 回退：简单形状
@@ -663,7 +663,7 @@ end
 function RenderCafePlayer(nvgCtx)
     local px = playerX
     local py = FLOOR_Y
-    local size = 64
+    local size = 90
     local drawn = AssetMap.DrawImageBottom(nvgCtx, AssetMap.NPC.player.idle, px, py, size, size)
     if not drawn then
         -- 回退：简笔画

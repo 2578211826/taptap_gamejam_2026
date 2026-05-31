@@ -140,25 +140,9 @@ GenericInteriorScene.BuildingConfigs = {
     },
 }
 
--- 建筑类型索引映射（buildingIndex → configKey）
--- 可由外部覆盖或扩展
-GenericInteriorScene.BuildingIndexMap = {
-    -- [buildingIndex] = "configKey"
-    -- 4 = 杂货铺(ShopScene专属), 7/9 = 网吧(InternetCafeScene专属)
-    -- 其余用通用场景
-    [1] = "residential",
-    [2] = "office",       -- 街道充电宝柜旁的建筑（也可进入）
-    [3] = "residential",  -- NPC路人旁的建筑（也可进入）
-    [5] = "abandoned",    -- NPC路人旁的建筑（也可进入）
-    [6] = "ramen",        -- 墙壁插座旁的建筑（也可进入）
-    [8] = "ktv",
-    [10] = "pharmacy",
-    [11] = "office",
-    [12] = "ramen",
-    [13] = "abandoned",
-    [14] = "ktv",
-    [15] = "pharmacy",
-}
+-- 建筑类型索引映射（旧版 fallback，新版直接传 interiorKey）
+-- 保留仅用于兼容，新代码应直接传 interiorKey
+GenericInteriorScene.BuildingIndexMap = {}
 
 -- ====================================================================
 -- 场景状态
@@ -226,9 +210,14 @@ function GenericInteriorScene.Init(nvgCtx, sw, sh)
 end
 
 -- ====================================================================
--- 获取建筑配置（支持 fallback）
+-- 获取建筑配置（优先使用 interiorKey，fallback 到 buildingIndex 映射）
 -- ====================================================================
-function GenericInteriorScene.GetConfig(buildingIndex)
+function GenericInteriorScene.GetConfig(buildingIndex, interiorKey)
+    -- 新版：直接用 interiorKey
+    if interiorKey and GenericInteriorScene.BuildingConfigs[interiorKey] then
+        return GenericInteriorScene.BuildingConfigs[interiorKey], interiorKey
+    end
+    -- 旧版 fallback：通过 buildingIndex 映射
     local key = GenericInteriorScene.BuildingIndexMap[buildingIndex]
     if key and GenericInteriorScene.BuildingConfigs[key] then
         return GenericInteriorScene.BuildingConfigs[key], key
@@ -238,23 +227,20 @@ function GenericInteriorScene.GetConfig(buildingIndex)
 end
 
 -- ====================================================================
--- 判断某个建筑是否应使用通用场景（非专属）
+-- 判断某个建筑是否应使用通用场景（旧版兼容，新版由 WorldRenderer 注册表驱动）
 -- ====================================================================
 function GenericInteriorScene.ShouldHandle(buildingIndex)
-    -- 专属场景的建筑不由通用场景处理
-    if buildingIndex == 4 then return false end   -- 杂货铺 → ShopScene
-    if buildingIndex == 7 or buildingIndex == 9 then return false end  -- 网吧 → InternetCafeScene
-    return true
+    return true  -- 新版由注册表 handler 字段决定，此函数仅兼容保留
 end
 
 -- ====================================================================
 -- 进入
 -- ====================================================================
-function GenericInteriorScene.Enter(gs, buildingIndex, exitCallback)
+function GenericInteriorScene.Enter(gs, buildingIndex, exitCallback, interiorKey)
     active = true
     gameState = gs
     currentBuildingIdx = buildingIndex
-    currentConfig = GenericInteriorScene.GetConfig(buildingIndex)
+    currentConfig = GenericInteriorScene.GetConfig(buildingIndex, interiorKey)
     onExitCallback = exitCallback
 
     playerX = 130

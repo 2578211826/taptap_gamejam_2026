@@ -235,7 +235,7 @@ end
 function PowerbankSystem.TryBorrow(stationId)
     local station = PowerbankSystem.GetById(stationId)
     if not station then
-        return false, "找不到该充电宝柜"
+        return false, "这个充电宝柜没电"
     end
 
     if station.state == PowerbankSystem.State.AVAILABLE then
@@ -256,7 +256,7 @@ end
 function PowerbankSystem.CanUse(stationId)
     local station = PowerbankSystem.GetById(stationId)
     if not station then
-        return false, "找不到该充电宝柜"
+        return false, "这个充电宝柜没电"
     end
 
     if station.state == PowerbankSystem.State.AVAILABLE then

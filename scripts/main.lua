@@ -21,6 +21,7 @@ local DiagLog = require("DiagLog")
 local AudioManager = require("AudioManager")
 local AssetMap = require("AssetMap")
 local PowerbankSystem = require("PowerbankSystem")
+local GenericInteriorScene = require("GenericInteriorScene")
 
 -- ====================================================================
 -- 全局状态
@@ -161,6 +162,9 @@ function Start()
     local InternetCafeScene = require("InternetCafeScene")
     InternetCafeScene.Init(nvg, screenW, screenH)
 
+    -- 初始化通用建筑场景
+    GenericInteriorScene.Init(nvg, screenW, screenH)
+
     -- 初始化手机 UI
     PhoneUI.Init(HandlePhoneEvent)
 
@@ -261,6 +265,8 @@ function CreateGameUI()
             CreateEndingPanel(),
             -- Layer 7: 开始菜单（最顶层）
             CreateMenuPanel(),
+            -- Layer 8: 设置面板（覆盖在菜单之上）
+            CreateSettingsPanel(),
         }
     }
 
@@ -561,58 +567,185 @@ function CreateMenuPanel()
         top = 0, left = 0, right = 0, bottom = 0,
         justifyContent = "center",
         alignItems = "center",
-        backgroundColor = { 10, 8, 25, 250 },
+        -- 背景铺满整个屏幕
+        backgroundImage = "image/UI/04_主菜单/menu_bg_full.png",
+        backgroundFit = "cover",
         children = {
+            -- 按钮区域：垂直居中偏下，严格按参考图比例
             UI.Panel {
-                width = 320,
-                padding = 32,
-                gap = 16,
+                position = "absolute",
+                bottom = "8%",
                 alignItems = "center",
-                backgroundColor = { 20, 18, 35, 255 },
-                borderRadius = 20,
-                borderWidth = 1,
-                borderColor = { 60, 60, 100, 200 },
+                gap = 6,
                 children = {
-                    UI.Label {
-                        text = "完蛋了",
-                        fontSize = 28,
-                        fontColor = { 255, 80, 80, 255 },
-                        textAlign = "center",
-                    },
-                    UI.Label {
-                        text = "手机没电了",
-                        fontSize = 22,
-                        fontColor = { 255, 200, 50, 255 },
-                        textAlign = "center",
-                    },
-                    UI.Label {
-                        text = "你的手机只剩5%电量\n在这座疯狂的城市里\n找到充电方式吧",
-                        fontSize = 12,
-                        fontColor = { 180, 180, 200, 255 },
-                        textAlign = "center",
-                        whiteSpace = "normal",
-                    },
-                    UI.Panel { height = 8 },
+                    -- 开始游戏按钮（参考图中最大，约占屏幕宽35%）
                     UI.Button {
-                        text = "开始游戏",
-                        variant = "primary",
-                        fontSize = 14,
-                        width = 180,
-                        height = 44,
+                        id = "menuBtnStart",
+                        width = 320,
+                        height = 90,
+                        backgroundImage = "image/UI/04_主菜单/btn_开始游戏.png",
+                        backgroundFit = "contain",
+                        backgroundColor = { 0, 0, 0, 0 },
+                        borderWidth = 0,
+                        text = "",
                         onClick = function()
                             StartGame()
                         end,
                     },
+                    -- 设置按钮（参考图中较小，约占屏幕宽25%）
+                    UI.Button {
+                        id = "menuBtnSettings",
+                        width = 240,
+                        height = 68,
+                        backgroundImage = "image/UI/04_主菜单/btn_设置.png",
+                        backgroundFit = "contain",
+                        backgroundColor = { 0, 0, 0, 0 },
+                        borderWidth = 0,
+                        text = "",
+                        onClick = function()
+                            ShowSettingsPanel()
+                        end,
+                    },
+                    -- 关于按钮（参考图中与设置同大）
+                    UI.Button {
+                        id = "menuBtnAbout",
+                        width = 240,
+                        height = 68,
+                        backgroundImage = "image/UI/04_主菜单/btn_关于.png",
+                        backgroundFit = "contain",
+                        backgroundColor = { 0, 0, 0, 0 },
+                        borderWidth = 0,
+                        text = "",
+                        onClick = function()
+                            ShowMessage("关于", "当前版本已经是最新版本", "知道了")
+                        end,
+                    },
+                    -- 操作提示
                     UI.Label {
                         text = "AD移动 | 空格跳跃 | Tab打开手机 | F交互",
                         fontSize = 9,
-                        fontColor = { 120, 120, 150, 255 },
+                        fontColor = { 200, 200, 220, 180 },
                         textAlign = "center",
+                        marginTop = 6,
                     },
                 }
             }
         }
     }
+end
+
+-- ====================================================================
+-- 设置面板
+-- ====================================================================
+function CreateSettingsPanel()
+    local audio = GetAudio()
+    local masterVol = audio and math.floor(audio:GetMasterGain("Master") * 100) or 100
+    local musicVol = audio and math.floor(audio:GetMasterGain("Music") * 100) or 100
+    local effectVol = audio and math.floor(audio:GetMasterGain("Effect") * 100) or 100
+
+    return UI.Panel {
+        id = "settingsPanel",
+        visible = false,
+        position = "absolute",
+        top = 0, left = 0, right = 0, bottom = 0,
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundColor = { 0, 0, 0, 180 },
+        children = {
+            UI.Panel {
+                width = 280,
+                padding = 20,
+                backgroundColor = { 30, 30, 50, 250 },
+                borderRadius = 12,
+                borderWidth = 1,
+                borderColor = { 80, 80, 120, 200 },
+                gap = 14,
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = "设置",
+                        fontSize = 16,
+                        fontColor = { 255, 220, 100, 255 },
+                        textAlign = "center",
+                    },
+                    -- 总音量
+                    UI.Panel {
+                        width = "100%",
+                        gap = 4,
+                        children = {
+                            UI.Label { text = "总音量", fontSize = 11, fontColor = { 200, 200, 220, 255 } },
+                            UI.Slider {
+                                id = "sliderMaster",
+                                value = masterVol,
+                                min = 0, max = 100,
+                                width = "100%",
+                                onChange = function(self, v)
+                                    local a = GetAudio()
+                                    if a then a:SetMasterGain("Master", v / 100.0) end
+                                end,
+                            },
+                        }
+                    },
+                    -- 背景音乐
+                    UI.Panel {
+                        width = "100%",
+                        gap = 4,
+                        children = {
+                            UI.Label { text = "背景音乐", fontSize = 11, fontColor = { 200, 200, 220, 255 } },
+                            UI.Slider {
+                                id = "sliderMusic",
+                                value = musicVol,
+                                min = 0, max = 100,
+                                width = "100%",
+                                onChange = function(self, v)
+                                    local a = GetAudio()
+                                    if a then a:SetMasterGain("Music", v / 100.0) end
+                                end,
+                            },
+                        }
+                    },
+                    -- 音效
+                    UI.Panel {
+                        width = "100%",
+                        gap = 4,
+                        children = {
+                            UI.Label { text = "音效", fontSize = 11, fontColor = { 200, 200, 220, 255 } },
+                            UI.Slider {
+                                id = "sliderEffect",
+                                value = effectVol,
+                                min = 0, max = 100,
+                                width = "100%",
+                                onChange = function(self, v)
+                                    local a = GetAudio()
+                                    if a then a:SetMasterGain("Effect", v / 100.0) end
+                                end,
+                            },
+                        }
+                    },
+                    -- 关闭按钮
+                    UI.Button {
+                        text = "关闭",
+                        variant = "primary",
+                        fontSize = 12,
+                        marginTop = 4,
+                        onClick = function()
+                            HideSettingsPanel()
+                        end,
+                    },
+                }
+            }
+        }
+    }
+end
+
+function ShowSettingsPanel()
+    local panel = uiRoot:FindById("settingsPanel")
+    if panel then panel:SetVisible(true) end
+end
+
+function HideSettingsPanel()
+    local panel = uiRoot:FindById("settingsPanel")
+    if panel then panel:SetVisible(false) end
 end
 
 -- ====================================================================
@@ -1191,6 +1324,17 @@ function HandleInteract()
             gs.phase = Config.State.PLAYING
         end)
 
+    elseif item.type == "building" then
+        -- 进入通用建筑室内场景
+        AudioManager.DoorEnter()
+        gs.phase = Config.State.SHOP  -- 复用 SHOP 状态（室内场景）
+        GenericInteriorScene.Enter(gs, item.buildingIndex, function()
+            -- 退出通用建筑回调
+            AudioManager.DoorExit()
+            AudioManager.SetBGMForState(Config.State.PLAYING)
+            gs.phase = Config.State.PLAYING
+        end)
+
     elseif item.type == "npc" then
         AudioManager.Interact()
         OpenNPCDialogue()
@@ -1270,8 +1414,11 @@ function OpenSlotGame()
     slotReels = { math.random(1, 5), math.random(1, 5), math.random(1, 5) }
     slotStopped = { false, false, false }
     -- 保存来源状态，以便关闭后返回正确场景
-    slotReturnPhase = gs.phase  -- PLAYING 或 SHOP(网吧)
-    gs.phase = Config.State.EVENT
+    slotReturnPhase = gs.phase  -- PLAYING 或 SHOP(网吧/通用建筑)
+    -- 室内场景（SHOP）中保持 phase 不变，老虎机作为叠加弹窗
+    if gs.phase ~= Config.State.SHOP then
+        gs.phase = Config.State.EVENT
+    end
     print("[SlotGame] NPC老虎机博弈开始, returnPhase=" .. tostring(slotReturnPhase))
 end
 
@@ -1492,11 +1639,13 @@ function HandleUpdate(eventType, eventData)
         ScanMiniGame.Update(dt)
     end
 
-    -- 商店/网吧场景更新
+    -- 商店/网吧/通用建筑场景更新
     if gs.phase == Config.State.SHOP then
         local InternetCafeScene = require("InternetCafeScene")
         if InternetCafeScene.IsActive() then
             InternetCafeScene.Update(dt)
+        elseif GenericInteriorScene.IsActive() then
+            GenericInteriorScene.Update(dt)
         else
             ShopScene.Update(dt)
         end
@@ -1507,8 +1656,8 @@ function HandleUpdate(eventType, eventData)
         UpdateChase(dt)
     end
 
-    -- NPC老虎机动画更新
-    if gs.phase == Config.State.EVENT and slotGameOpen then
+    -- NPC老虎机动画更新（EVENT 或 SHOP 状态内弹窗）
+    if slotGameOpen then
         UpdateSlotAnimation(dt)
     end
 
@@ -1600,10 +1749,10 @@ function HandleUpdate(eventType, eventData)
         UpdateNearbyInteractable()
     end
 
-    -- 操作提示只在 PLAYING 状态显示
+    -- 操作提示在 PLAYING 和 SHOP（室内场景）状态都显示
     local actionHints = uiRoot:FindById("actionHints")
     if actionHints then
-        actionHints:SetVisible(gs.phase == Config.State.PLAYING)
+        actionHints:SetVisible(gs.phase == Config.State.PLAYING or gs.phase == Config.State.SHOP)
     end
 
     -- 更新手机电量显示
@@ -1680,7 +1829,7 @@ function UpdateActionHints()
 
     if not hintF or not hintTab then return end
 
-    local hasInteractable = gs.nearbyInteractable ~= nil and gs.phase == Config.State.PLAYING
+    local hasInteractable = gs.nearbyInteractable ~= nil and (gs.phase == Config.State.PLAYING or gs.phase == Config.State.SHOP)
 
     -- 脉动动画缩放（用 sin 模拟）
     local pulse = 1.0
@@ -1694,7 +1843,9 @@ function UpdateActionHints()
         -- 高亮：判断该物品是否需要用 F 交互（充电宝不用F，用Tab打开手机扫码）
         local needsF = (gs.nearbyInteractable.type == "shop" or
                         gs.nearbyInteractable.type == "outlet" or
-                        gs.nearbyInteractable.type == "npc")
+                        gs.nearbyInteractable.type == "npc" or
+                        gs.nearbyInteractable.type == "building" or
+                        gs.nearbyInteractable.type == "internet_cafe")
         if needsF then
             hintF:SetStyle({
                 backgroundColor = { 40, 50, 80, 230 },
@@ -1872,7 +2023,7 @@ function HandleKeyDown(eventType, eventData)
         end
         -- 老虎机博弈面板输入
         if slotGameOpen then
-            if key == KEY_F or key == KEY_RETURN then
+            if key == KEY_F or key == KEY_RETURN or key == KEY_SPACE then
                 if slotPhase == "result" then
                     SlotAcknowledge()
                 elseif slotPhase == "spinning" then
@@ -1901,12 +2052,29 @@ function HandleKeyDown(eventType, eventData)
         return
     end
 
-    -- 商店/网吧场景中
+    -- 商店/网吧/通用建筑场景中
     if gs.phase == Config.State.SHOP then
+        -- 老虎机博弈面板（最高优先级覆盖）
+        if slotGameOpen then
+            if key == KEY_F or key == KEY_RETURN or key == KEY_SPACE then
+                if slotPhase == "result" then
+                    SlotAcknowledge()
+                elseif slotPhase == "spinning" then
+                    SlotStopNext()
+                else
+                    SlotInsertCoin()
+                end
+            elseif key == KEY_ESCAPE then
+                CloseSlotGame()
+            end
+            return
+        end
         local InternetCafeScene = require("InternetCafeScene")
         if InternetCafeScene.IsActive() then
-            -- 网吧场景键盘处理
-            if InternetCafeScene.IsDialogOpen() then
+            -- Tab 打开手机（室内场景通用）
+            if key == KEY_TAB then
+                -- 不 return，让后面的 Tab 手机逻辑处理
+            elseif InternetCafeScene.IsDialogOpen() then
                 if key == KEY_W or key == KEY_UP then
                     InternetCafeScene.DialogNavigate(-1)
                 elseif key == KEY_S or key == KEY_DOWN then
@@ -1916,73 +2084,106 @@ function HandleKeyDown(eventType, eventData)
                 elseif key == KEY_ESCAPE then
                     InternetCafeScene.CloseDialog()
                 end
+                return
             elseif InternetCafeScene.IsUsbCharging() then
                 -- 充电中不处理输入（等待完成）
+                return
             else
                 if key == KEY_F then
                     InternetCafeScene.OnInteract()
                 elseif key == KEY_ESCAPE then
                     InternetCafeScene.Exit()
                 end
+                return
+            end
+        end
+        if GenericInteriorScene.IsActive() then
+            -- Tab 打开手机（室内场景通用）
+            if key == KEY_TAB then
+                -- 不 return，让后面的 Tab 手机逻辑处理
+            elseif GenericInteriorScene.IsDialogOpen() then
+                if key == KEY_W or key == KEY_UP then
+                    GenericInteriorScene.DialogNavigate(-1)
+                elseif key == KEY_S or key == KEY_DOWN then
+                    GenericInteriorScene.DialogNavigate(1)
+                elseif key == KEY_F or key == KEY_RETURN then
+                    GenericInteriorScene.DialogConfirm()
+                elseif key == KEY_ESCAPE then
+                    GenericInteriorScene.CloseDialog()
+                end
+                return
+            else
+                if key == KEY_F then
+                    GenericInteriorScene.OnInteract()
+                elseif key == KEY_ESCAPE then
+                    GenericInteriorScene.Exit()
+                end
+                return
+            end
+        end
+        -- 室内场景（网吧/通用建筑）Tab 打开手机：跳过 ShopScene，继续到后面的 Tab 手机逻辑
+        if InternetCafeScene.IsActive() or GenericInteriorScene.IsActive() then
+            -- 只有 Tab 会走到这里（其他键已被上面 return 拦截）
+            -- 不 return，让控制流继续到后面的 Tab 手机打开/关闭逻辑
+        else
+            -- 杂货铺（ShopScene）键盘处理
+            if ShopScene.IsDoorWarningOpen() then
+                -- 门口警告面板（最高优先级）
+                if key == KEY_W or key == KEY_UP then
+                    ShopScene.DoorWarningNavigate(-1)
+                elseif key == KEY_S or key == KEY_DOWN then
+                    ShopScene.DoorWarningNavigate(1)
+                elseif key == KEY_F or key == KEY_RETURN then
+                    ShopScene.DoorWarningConfirm()
+                elseif key == KEY_ESCAPE then
+                    ShopScene.CloseDoorWarning()
+                end
+            elseif ShopScene.IsCounterOpen() then
+                -- 柜台对话面板打开时
+                if key == KEY_W or key == KEY_UP then
+                    ShopScene.CounterNavigate(-1)
+                elseif key == KEY_S or key == KEY_DOWN then
+                    ShopScene.CounterNavigate(1)
+                elseif key == KEY_F or key == KEY_RETURN then
+                    ShopScene.CounterConfirm()
+                elseif key == KEY_ESCAPE then
+                    ShopScene.CloseCounter()
+                end
+            elseif ShopScene.IsShelfOpen() then
+                -- 货架面板打开时（鼠标点击拿取，键盘仅关闭）
+                if key == KEY_ESCAPE then
+                    ShopScene.CloseShelf()
+                end
+            elseif ShopScene.IsInventoryMode() then
+                -- 携带栏操作模式
+                if key == KEY_A or key == KEY_LEFT then
+                    ShopScene.InventoryNavigate(-1)
+                elseif key == KEY_D or key == KEY_RIGHT then
+                    ShopScene.InventoryNavigate(1)
+                elseif key == KEY_Q then
+                    ShopScene.DiscardItem()
+                elseif key == KEY_TAB or key == KEY_ESCAPE then
+                    ShopScene.ToggleInventoryMode()
+                end
+            else
+                -- 正常商店浏览
+                if key == KEY_F then
+                    ShopScene.OnInteract()
+                elseif key == KEY_TAB then
+                    ShopScene.ToggleInventoryMode()
+                elseif key == KEY_ESCAPE then
+                    -- ESC离开也需要检查未付款物品
+                    local unpaid = ShopScene.GetUnpaidItems()
+                    if #unpaid > 0 then
+                        -- 弹出门口警告（和走到门口按F交互相同逻辑）
+                        ShopScene.ShowDoorWarning()
+                    else
+                        ShopScene.Exit()
+                    end
+                end
             end
             return
         end
-        if ShopScene.IsDoorWarningOpen() then
-            -- 门口警告面板（最高优先级）
-            if key == KEY_W or key == KEY_UP then
-                ShopScene.DoorWarningNavigate(-1)
-            elseif key == KEY_S or key == KEY_DOWN then
-                ShopScene.DoorWarningNavigate(1)
-            elseif key == KEY_F or key == KEY_RETURN then
-                ShopScene.DoorWarningConfirm()
-            elseif key == KEY_ESCAPE then
-                ShopScene.CloseDoorWarning()
-            end
-        elseif ShopScene.IsCounterOpen() then
-            -- 柜台对话面板打开时
-            if key == KEY_W or key == KEY_UP then
-                ShopScene.CounterNavigate(-1)
-            elseif key == KEY_S or key == KEY_DOWN then
-                ShopScene.CounterNavigate(1)
-            elseif key == KEY_F or key == KEY_RETURN then
-                ShopScene.CounterConfirm()
-            elseif key == KEY_ESCAPE then
-                ShopScene.CloseCounter()
-            end
-        elseif ShopScene.IsShelfOpen() then
-            -- 货架面板打开时（鼠标点击拿取，键盘仅关闭）
-            if key == KEY_ESCAPE then
-                ShopScene.CloseShelf()
-            end
-        elseif ShopScene.IsInventoryMode() then
-            -- 携带栏操作模式
-            if key == KEY_A or key == KEY_LEFT then
-                ShopScene.InventoryNavigate(-1)
-            elseif key == KEY_D or key == KEY_RIGHT then
-                ShopScene.InventoryNavigate(1)
-            elseif key == KEY_Q then
-                ShopScene.DiscardItem()
-            elseif key == KEY_TAB or key == KEY_ESCAPE then
-                ShopScene.ToggleInventoryMode()
-            end
-        else
-            -- 正常商店浏览
-            if key == KEY_F then
-                ShopScene.OnInteract()
-            elseif key == KEY_TAB then
-                ShopScene.ToggleInventoryMode()
-            elseif key == KEY_ESCAPE then
-                -- ESC离开也需要检查未付款物品
-                local unpaid = ShopScene.GetUnpaidItems()
-                if #unpaid > 0 then
-                    -- 弹出门口警告（和走到门口按F交互相同逻辑）
-                    ShopScene.ShowDoorWarning()
-                else
-                    ShopScene.Exit()
-                end
-            end
-        end
-        return
     end
 
     -- 贷款系统键盘输入（手机打开且贷款流程激活时）
@@ -2099,11 +2300,13 @@ function HandleMouseMove(eventType, eventData)
     -- 更新 hover 状态
     hoveredBtn = GetButtonAtPosition(mouseLogX, mouseLogY)
 
-    -- 同步 hover/pressed 状态给 ShopScene/网吧（用于按钮视觉反馈）
+    -- 同步 hover/pressed 状态给 ShopScene/网吧/通用建筑（用于按钮视觉反馈）
     if gs.phase == Config.State.SHOP then
         local InternetCafeScene = require("InternetCafeScene")
         if InternetCafeScene.IsActive() then
             InternetCafeScene.SetHoverState(hoveredBtn, pressedBtn)
+        elseif GenericInteriorScene.IsActive() then
+            GenericInteriorScene.SetHoverState(hoveredBtn, pressedBtn)
         else
             ShopScene.SetHoverState(hoveredBtn, pressedBtn)
         end
@@ -2121,11 +2324,13 @@ function HandleMouseUp(eventType, eventData)
     end
     pressedBtn = nil
 
-    -- 清除 ShopScene/网吧 的 pressed 状态
+    -- 清除 ShopScene/网吧/通用建筑 的 pressed 状态
     if gs.phase == Config.State.SHOP then
         local InternetCafeScene = require("InternetCafeScene")
         if InternetCafeScene.IsActive() then
             InternetCafeScene.SetHoverState(hoveredBtn, nil)
+        elseif GenericInteriorScene.IsActive() then
+            GenericInteriorScene.SetHoverState(hoveredBtn, nil)
         else
             ShopScene.SetHoverState(hoveredBtn, nil)
         end
@@ -2164,11 +2369,13 @@ function HandleMouseDown(eventType, eventData)
     local btn = GetButtonAtPosition(mouseLogX, mouseLogY)
     if btn then
         pressedBtn = btn
-        -- 同步 pressed 状态给 ShopScene/网吧
+        -- 同步 pressed 状态给 ShopScene/网吧/通用建筑
         if gs.phase == Config.State.SHOP then
             local InternetCafeScene = require("InternetCafeScene")
             if InternetCafeScene.IsActive() then
                 InternetCafeScene.SetHoverState(hoveredBtn, pressedBtn)
+            elseif GenericInteriorScene.IsActive() then
+                GenericInteriorScene.SetHoverState(hoveredBtn, pressedBtn)
             else
                 ShopScene.SetHoverState(hoveredBtn, pressedBtn)
             end
@@ -2186,6 +2393,20 @@ function HandleMouseDown(eventType, eventData)
             local panelY = (screenH - panelH) / 2
             if mouseLogX < panelX or mouseLogX > panelX + panelW or mouseLogY < panelY or mouseLogY > panelY + panelH then
                 InternetCafeScene.CloseDialog()
+                return
+            end
+        end
+    end
+
+    -- 点击面板外 → 关闭面板（通用建筑场景）
+    if gs.phase == Config.State.SHOP then
+        if GenericInteriorScene.IsActive() and GenericInteriorScene.IsDialogOpen() then
+            local panelW = 340
+            local panelH = 180
+            local panelX = (screenW - panelW) / 2
+            local panelY = (screenH - panelH) / 2
+            if mouseLogX < panelX or mouseLogX > panelX + panelW or mouseLogY < panelY or mouseLogY > panelY + panelH then
+                GenericInteriorScene.CloseDialog()
                 return
             end
         end
@@ -2240,28 +2461,8 @@ end
 
 -- 判断逻辑坐标(mx,my)处有什么按钮
 function GetButtonAtPosition(mx, my)
-    -- 商店/网吧场景面板按钮
-    if gs.phase == Config.State.SHOP then
-        local InternetCafeScene = require("InternetCafeScene")
-        if InternetCafeScene.IsActive() then
-            local cafeBtn = InternetCafeScene.GetButtonAtPosition(mx, my)
-            if cafeBtn then return cafeBtn end
-            -- 网吧对话打开时不检测其他按钮
-            if InternetCafeScene.IsDialogOpen() then
-                return nil
-            end
-        else
-            local shopBtn = ShopScene.GetButtonAtPosition(mx, my)
-            if shopBtn then return shopBtn end
-            -- 商店面板打开时不检测其他按钮
-            if ShopScene.IsDoorWarningOpen() or ShopScene.IsCounterOpen() then
-                return nil
-            end
-        end
-    end
-
-    -- 老虎机面板按钮
-    if gs.phase == Config.State.EVENT and slotGameOpen then
+    -- 老虎机面板按钮（最高优先级，覆盖在任何场景之上）
+    if slotGameOpen then
         local panelW = 340
         local panelH = 360
         local panelX = (screenW - panelW) / 2
@@ -2282,6 +2483,33 @@ function GetButtonAtPosition(mx, my)
             end
         end
         return nil
+    end
+
+    -- 商店/网吧/通用建筑场景面板按钮
+    if gs.phase == Config.State.SHOP then
+        local InternetCafeScene = require("InternetCafeScene")
+        if InternetCafeScene.IsActive() then
+            local cafeBtn = InternetCafeScene.GetButtonAtPosition(mx, my)
+            if cafeBtn then return cafeBtn end
+            -- 网吧对话打开时不检测其他按钮
+            if InternetCafeScene.IsDialogOpen() then
+                return nil
+            end
+        elseif GenericInteriorScene.IsActive() then
+            local genBtn = GenericInteriorScene.GetButtonAtPosition(mx, my)
+            if genBtn then return genBtn end
+            -- 通用建筑对话打开时不检测其他按钮
+            if GenericInteriorScene.IsDialogOpen() then
+                return nil
+            end
+        else
+            local shopBtn = ShopScene.GetButtonAtPosition(mx, my)
+            if shopBtn then return shopBtn end
+            -- 商店面板打开时不检测其他按钮
+            if ShopScene.IsDoorWarningOpen() or ShopScene.IsCounterOpen() then
+                return nil
+            end
+        end
     end
 
     -- NPC 对话选项按钮
@@ -2314,6 +2542,13 @@ function ExecuteButtonClick(btnId)
     local InternetCafeScene = require("InternetCafeScene")
     if InternetCafeScene.IsActive() then
         if InternetCafeScene.ExecuteButtonClick(btnId) then
+            return
+        end
+    end
+
+    -- 通用建筑场景按钮
+    if GenericInteriorScene.IsActive() then
+        if GenericInteriorScene.ExecuteButtonClick(btnId) then
             return
         end
     end
@@ -2678,7 +2913,7 @@ function RenderSlotGame(vg, sw, sh)
     nvgFontFace(vg, "sans")
     nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
     nvgFillColor(vg, nvgRGBA(255, 220, 50, 255))
-    nvgText(vg, panelX + panelW / 2, contentTop, "说服路人！")
+    nvgText(vg, panelX + panelW / 2, contentTop, "乞讨充电宝中")
 
     -- 副标题
     nvgFontSize(vg, 9)
@@ -2786,7 +3021,7 @@ function RenderSlotGame(vg, sw, sh)
         local stoppedCount = 0
         for i = 1, 3 do if slotStopped[i] then stoppedCount = stoppedCount + 1 end end
         nvgFillColor(vg, nvgRGBA(255, 255, 100, 255))
-        nvgText(vg, panelX + panelW / 2, statusY, "谈判中... 点击停止 (" .. stoppedCount .. "/3)")
+        nvgText(vg, panelX + panelW / 2, statusY, "乞讨中... 点击停止 (" .. stoppedCount .. "/3)")
     elseif slotPhase == "result" then
         if slotResult == "win" then
             nvgFillColor(vg, nvgRGBA(50, 255, 100, 255))
@@ -3443,11 +3678,13 @@ function HandleRender(eventType, eventData)
     nvgBeginFrame(nvg, physW, physH, dpr)
 
     if gs.phase ~= Config.State.MENU then
-        -- 商店/网吧室内场景
+        -- 商店/网吧/通用建筑室内场景
         if gs.phase == Config.State.SHOP then
             local InternetCafeScene = require("InternetCafeScene")
             if InternetCafeScene.IsActive() then
                 InternetCafeScene.Render(nvg, screenW, screenH)
+            elseif GenericInteriorScene.IsActive() then
+                GenericInteriorScene.Render(nvg, screenW, screenH)
             else
                 ShopScene.Render(nvg, screenW, screenH)
             end

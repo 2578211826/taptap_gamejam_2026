@@ -7,6 +7,7 @@
 local Config = require("Config")
 local AudioManager = require("AudioManager")
 local PowerbankSystem = require("PowerbankSystem")
+local AssetMap = require("AssetMap")
 
 local InternetCafeScene = {}
 
@@ -233,10 +234,10 @@ end
 function OpenNPCDialog()
     npcDialogOpen = true
     npcDialogChoice = 1
-    npcDialogText = "网管：哟，充手机的？\n想在这充电得先赢我一把！"
+    npcDialogText = "网管：哟，干嘛？"
     npcDialogOptions = {
-        { text = "来吧（老虎机）", action = "gamble" },
-        { text = "算了不玩", action = "close" },
+        { text = "能不能借我充电宝", action = "gamble" },
+        { text = "算了没事", action = "close" },
     }
 end
 
@@ -564,41 +565,32 @@ function RenderNPC(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(80, 70, 100, 255))
     nvgFill(nvgCtx)
 
-    -- NPC身体
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, npcX - 12, npcY - 55, 24, 35, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(50, 50, 60, 255))
-    nvgFill(nvgCtx)
-    -- 帽子（网管标志）
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, npcX - 10, npcY - 78, 20, 10, 3)
-    nvgFillColor(nvgCtx, nvgRGBA(200, 50, 50, 255))
-    nvgFill(nvgCtx)
-    -- 头
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, npcX, npcY - 65, 12)
-    nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
-    nvgFill(nvgCtx)
-    -- 腿
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, npcX - 7, npcY - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 30, 45, 255))
-    nvgFill(nvgCtx)
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, npcX + 2, npcY - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 30, 45, 255))
-    nvgFill(nvgCtx)
+    -- NPC（使用奸商精灵图）
+    local merchantSprite = AssetMap.NPC.merchant.idle
+    local npcW, npcH = 48, 72
+    local drawn = AssetMap.DrawImageBottom(nvgCtx, merchantSprite, npcX, npcY, npcW, npcH)
+    if not drawn then
+        -- 回退：简单形状
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, npcX - 12, npcY - 55, 24, 35, 4)
+        nvgFillColor(nvgCtx, nvgRGBA(50, 50, 60, 255))
+        nvgFill(nvgCtx)
+        nvgBeginPath(nvgCtx)
+        nvgCircle(nvgCtx, npcX, npcY - 65, 12)
+        nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
+        nvgFill(nvgCtx)
+    end
 
     -- 名牌
     nvgFontSize(nvgCtx, 8)
     nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
     nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, npcX - 14, npcY - 42, 28, 12, 2)
+    nvgRoundedRect(nvgCtx, npcX - 14, npcY - npcH - 4, 28, 12, 2)
     nvgFillColor(nvgCtx, nvgRGBA(200, 50, 50, 200))
     nvgFill(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
-    nvgText(nvgCtx, npcX, npcY - 36, "网管")
+    nvgText(nvgCtx, npcX, npcY - npcH + 2, "网管")
 end
 
 function RenderPowerbankStation(nvgCtx)
@@ -795,19 +787,23 @@ function RenderNPCDialog(nvgCtx)
     nvgStrokeWidth(nvgCtx, 2)
     nvgStroke(nvgCtx)
 
-    -- NPC头像
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, panelX + 28, panelY + 28, 16)
-    nvgFillColor(nvgCtx, nvgRGBA(200, 50, 50, 255))
-    nvgFill(nvgCtx)
-    nvgFontSize(nvgCtx, 10)
-    nvgFontFace(nvgCtx, "sans")
-    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
-    nvgText(nvgCtx, panelX + 28, panelY + 28, "管")
+    -- NPC头像（使用奸商talk精灵缩略图）
+    local avatarDrawn = AssetMap.DrawImage(nvgCtx, AssetMap.NPC.merchant.talk, panelX + 10, panelY + 10, 32, 40)
+    if not avatarDrawn then
+        nvgBeginPath(nvgCtx)
+        nvgCircle(nvgCtx, panelX + 28, panelY + 28, 16)
+        nvgFillColor(nvgCtx, nvgRGBA(200, 50, 50, 255))
+        nvgFill(nvgCtx)
+        nvgFontSize(nvgCtx, 10)
+        nvgFontFace(nvgCtx, "sans")
+        nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
+        nvgText(nvgCtx, panelX + 28, panelY + 28, "管")
+    end
 
     -- 名字
     nvgFontSize(nvgCtx, 11)
+    nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(nvgCtx, nvgRGBA(200, 150, 255, 255))
     nvgText(nvgCtx, panelX + 50, panelY + 24, "网管")

@@ -45,7 +45,7 @@ local CEILING_H = 60       -- 天花板高度
 local WALL_MARGIN = 30     -- 墙壁厚度
 
 -- 商店内物件位置
-local DOOR_X = 50          -- 门的位置（左侧）
+local DOOR_X = 100         -- 门的位置（左侧，稍微右移）
 local COUNTER_X = 750      -- 柜台位置（右侧）
 
 -- 门口警告状态
@@ -54,7 +54,7 @@ local doorWarningChoice = 1      -- 1=回去付款, 2=硬闯
 
 -- 充电宝柜（概率生成）
 local hasPowerbank = false       -- 本次进店是否有充电宝柜
-local powerbankX = 720           -- 充电宝柜位置
+local powerbankX = 30            -- 充电宝柜位置（门的左边）
 local shopBuildingIdx = 4        -- 所属建筑 index
 local shopStationId = nil        -- 充电宝柜ID
 
@@ -99,7 +99,7 @@ function ShopScene.Enter(gs, buildingIndex, exitCallback)
     active = true
     gameState = gs
     shopBuildingIdx = buildingIndex or 4
-    playerX = 80  -- 从门口开始
+    playerX = 130  -- 从门口右边开始
     facingRight = true
     onExitCallback = exitCallback
     nearbyZone = nil
@@ -917,39 +917,23 @@ function RenderCounter(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(100, 200, 100, 200))
     nvgFill(nvgCtx)
 
-    -- 店员
+    -- 店员（使用Q版纸片人精灵图）
     local npcX = cx + cw + 20
     local npcY = FLOOR_Y
-    -- 身体
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, npcX - 12, npcY - 55, 24, 35, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255))
-    nvgFill(nvgCtx)
-    -- 头
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, npcX, npcY - 65, 12)
-    nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
-    nvgFill(nvgCtx)
-    -- 腿
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, npcX - 7, npcY - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 60, 255))
-    nvgFill(nvgCtx)
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, npcX + 2, npcY - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 60, 255))
-    nvgFill(nvgCtx)
-
-    -- 名牌
-    nvgFontSize(nvgCtx, 8)
-    nvgFontFace(nvgCtx, "sans")
-    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, npcX - 14, npcY - 42, 28, 12, 2)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 200))
-    nvgFill(nvgCtx)
-    nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
-    nvgText(nvgCtx, npcX, npcY - 36, "店员")
+    local clerkSprite = AssetMap.NPC.clerk.idle
+    local clerkW, clerkH = 48, 72
+    local drawn = AssetMap.DrawImageBottom(nvgCtx, clerkSprite, npcX, npcY, clerkW, clerkH)
+    if not drawn then
+        -- 回退：简单矩形
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, npcX - 12, npcY - 55, 24, 35, 4)
+        nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255))
+        nvgFill(nvgCtx)
+        nvgBeginPath(nvgCtx)
+        nvgCircle(nvgCtx, npcX, npcY - 65, 12)
+        nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
+        nvgFill(nvgCtx)
+    end
 end
 
 function RenderShopPowerbank(nvgCtx)
@@ -1350,19 +1334,23 @@ function RenderCounterPanel(nvgCtx)
     nvgStrokeWidth(nvgCtx, 2)
     nvgStroke(nvgCtx)
 
-    -- 店员头像区域（左上角小图标）
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, panelX + 28, panelY + 30, 16)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255))
-    nvgFill(nvgCtx)
-    nvgFontSize(nvgCtx, 10)
-    nvgFontFace(nvgCtx, "sans")
-    nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-    nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
-    nvgText(nvgCtx, panelX + 28, panelY + 30, "店")
+    -- 店员头像区域（使用talk精灵缩略图）
+    local avatarDrawn = AssetMap.DrawImage(nvgCtx, AssetMap.NPC.clerk.talk, panelX + 10, panelY + 12, 32, 40)
+    if not avatarDrawn then
+        nvgBeginPath(nvgCtx)
+        nvgCircle(nvgCtx, panelX + 28, panelY + 30, 16)
+        nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255))
+        nvgFill(nvgCtx)
+        nvgFontSize(nvgCtx, 10)
+        nvgFontFace(nvgCtx, "sans")
+        nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+        nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
+        nvgText(nvgCtx, panelX + 28, panelY + 30, "店")
+    end
 
     -- 店员名字
     nvgFontSize(nvgCtx, 11)
+    nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_LEFT + NVG_ALIGN_MIDDLE)
     nvgFillColor(nvgCtx, nvgRGBA(180, 200, 255, 255))
     nvgText(nvgCtx, panelX + 50, panelY + 26, "店员")

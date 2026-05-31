@@ -91,8 +91,17 @@ function WorldRenderer.Init(screenW, screenH)
         local w = math.random(100, 200)
         local h = math.random(Config.World.BuildingMinHeight, Config.World.BuildingMaxHeight)
 
-        -- 分配建筑贴图（循环使用）
-        local texIdx = ((buildingIndex - 1) % numBuildingTextures) + 1
+        -- 分配建筑贴图（特殊建筑强制指定，其余循环使用）
+        local texIdx
+        if buildingIndex == 7 or buildingIndex == 9 then
+            texIdx = 2  -- AssetMap.Buildings[2] = 网吧
+        elseif buildingIndex == 4 then
+            texIdx = 1  -- AssetMap.Buildings[1] = 便利店
+        else
+            texIdx = ((buildingIndex - 1) % numBuildingTextures) + 1
+            -- 避免非特殊建筑意外使用便利店/网吧贴图
+            if texIdx == 1 or texIdx == 2 then texIdx = 3 end
+        end
 
         -- 预生成窗户亮灭状态（贴图建筑上叠加的发光窗户效果）
         local winCols = math.floor((w - 20) / (12 + 8))
@@ -122,15 +131,15 @@ function WorldRenderer.Init(screenW, screenH)
 
         -- 添加可交互物品
         if buildingIndex == 2 then
-            -- 街道充电宝柜
+            -- 街道充电宝柜（放在建筑右侧间隙，不与建筑重叠）
             table.insert(interactables, {
                 type = "powerbank",
-                x = x + w / 2,
+                x = x + w + 25,
                 y = groundY,
                 label = "共享充电宝",
                 icon = "battery",
                 buildingIndex = buildingIndex,
-                stationId = "pb_street_" .. math.floor(x + w / 2),
+                stationId = "pb_street_" .. math.floor(x + w + 25),
             })
         elseif buildingIndex == 4 then
             table.insert(interactables, {
@@ -153,7 +162,7 @@ function WorldRenderer.Init(screenW, screenH)
         elseif buildingIndex == 3 or buildingIndex == 5 then
             table.insert(interactables, {
                 type = "npc",
-                x = x + w / 2 + 30,
+                x = x + w + 25,  -- 放在建筑右侧间隙，不与建筑重叠
                 y = groundY,
                 label = "路人",
                 icon = "person",
@@ -172,16 +181,35 @@ function WorldRenderer.Init(screenW, screenH)
                 icon = "cafe",
                 buildingIndex = buildingIndex,
             })
-            -- 网吧门口也有一台充电宝柜
+            -- 网吧旁边的充电宝柜（放在建筑右侧间隙，不与建筑重叠）
             table.insert(interactables, {
                 type = "powerbank",
-                x = x + w / 2 + 50,
+                x = x + w + 25,
                 y = groundY,
                 label = "共享充电宝",
                 icon = "battery",
                 buildingIndex = buildingIndex,
                 stationId = "pb_cafe_" .. buildingIndex,
             })
+        end
+
+        -- 通用建筑（非专属场景的都可以进入）
+        -- 排除: 2=街道充电宝, 4=杂货铺, 6=插座, 7/9=网吧, 3/5=路人NPC(已在外面)
+        if buildingIndex ~= 2 and buildingIndex ~= 4 and buildingIndex ~= 6
+            and buildingIndex ~= 7 and buildingIndex ~= 9
+            and buildingIndex ~= 3 and buildingIndex ~= 5 then
+            local GenericInteriorScene = require("GenericInteriorScene")
+            if GenericInteriorScene.ShouldHandle(buildingIndex) then
+                local cfg = GenericInteriorScene.GetConfig(buildingIndex)
+                table.insert(interactables, {
+                    type = "building",
+                    x = x + w / 2,
+                    y = groundY,
+                    label = cfg.name,
+                    icon = "building",
+                    buildingIndex = buildingIndex,
+                })
+            end
         end
 
         -- 在建筑间隙放置街道道具和路灯

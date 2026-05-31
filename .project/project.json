@@ -17,19 +17,19 @@
     "developer_id": 199879
   },
   "assets": {
-    "icon": "./assets/image/game_material/icon_v4_C_靛蓝暖橙_20260531023612.png",
+    "icon": "./assets/image/game_material/icon_v5A_电池放大_2_20260531044440.png",
     "screenshots": [],
-    "promotional_image": "./assets/image/game_material/promo_v1_D_三段叙事_20260531025254.png",
-    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/icon_v4_C_靛蓝暖橙_20260531023612.png",
-    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/promo_v1_D_三段叙事_20260531025254.png",
-    "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-05-31T03-03-38_01.png",
-    "cover_horizontal_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋了，手机没电了/COVER_HORIZONTAL_2026-05-31T03-03-38_01.png",
-    "cover_vertical": "./game_material/COVER_VERTICAL_2026-05-31T03-03-38_01.png",
-    "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋了，手机没电了/COVER_VERTICAL_2026-05-31T03-03-38_01.png",
-    "square_promotional_image": "./game_material/SQUARE_PROMO_2026-05-31T03-03-38_01.jpg",
-    "square_promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋了，手机没电了/SQUARE_PROMO_2026-05-31T03-03-38_01.jpg"
+    "promotional_image": "./assets/image/game_material/promo_v4_A_极简电池_20260531045938.png",
+    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/icon_v5A_电池放大_2_20260531044440.png",
+    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/promo_v4_A_极简电池_20260531045938.png",
+    "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-05-31T05-08-09_01.png",
+    "cover_horizontal_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/COVER_HORIZONTAL_2026-05-31T05-08-09_01.png",
+    "cover_vertical": "./game_material/COVER_VERTICAL_2026-05-31T05-08-09_01.png",
+    "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/COVER_VERTICAL_2026-05-31T05-08-09_01.png",
+    "square_promotional_image": "./game_material/SQUARE_PROMO_2026-05-31T05-08-09_01.jpg",
+    "square_promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/SQUARE_PROMO_2026-05-31T05-08-09_01.jpg"
   },
   "metadata": {
-    "updated_at": "2026-05-31T03:03:39.110Z"
+    "updated_at": "2026-05-31T05:08:11.042Z"
   }
 }

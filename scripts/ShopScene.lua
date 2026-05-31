@@ -747,25 +747,21 @@ function RenderDoor(nvgCtx)
     local dw = 50
     local dh = 90
     local dy = FLOOR_Y - dh
-
     -- 门框
     nvgBeginPath(nvgCtx)
     nvgRect(nvgCtx, dx - 3, dy - 3, dw + 6, dh + 3)
     nvgFillColor(nvgCtx, nvgRGBA(80, 60, 40, 255))
     nvgFill(nvgCtx)
-
     -- 门板
     nvgBeginPath(nvgCtx)
     nvgRect(nvgCtx, dx, dy, dw, dh)
     nvgFillColor(nvgCtx, nvgRGBA(140, 100, 60, 255))
     nvgFill(nvgCtx)
-
     -- 门把手
     nvgBeginPath(nvgCtx)
     nvgCircle(nvgCtx, dx + dw - 10, dy + dh / 2, 4)
     nvgFillColor(nvgCtx, nvgRGBA(200, 180, 50, 255))
     nvgFill(nvgCtx)
-
     -- 门上方"出口"标志
     nvgFontSize(nvgCtx, 9)
     nvgFontFace(nvgCtx, "sans")
@@ -776,41 +772,42 @@ end
 
 function RenderShelf(nvgCtx, shelf)
     local sx = shelf.x
-    local sw = shelf.w
-    local sh = 140  -- 货架高度
+    local sh = 130
     local sy = FLOOR_Y - sh
 
     -- 货架背板
     nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, sx, sy, sw, sh)
+    nvgRect(nvgCtx, sx, sy, shelf.w, sh)
     nvgFillColor(nvgCtx, nvgRGBA(200, 180, 150, 255))
     nvgFill(nvgCtx)
-
-    -- 货架边框
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, sx, sy, sw, sh)
-    nvgStrokeColor(nvgCtx, nvgRGBA(120, 100, 70, 255))
-    nvgStrokeWidth(nvgCtx, 2)
+    -- 边框
+    nvgStrokeColor(nvgCtx, nvgRGBA(120, 90, 60, 255))
+    nvgStrokeWidth(nvgCtx, 1.5)
     nvgStroke(nvgCtx)
 
-    -- 隔板（3层）
+    -- 层板线（3层）
     for row = 1, 3 do
         local ly = sy + row * (sh / 4)
         nvgBeginPath(nvgCtx)
-        nvgRect(nvgCtx, sx + 2, ly, sw - 4, 3)
-        nvgFillColor(nvgCtx, nvgRGBA(150, 130, 100, 255))
-        nvgFill(nvgCtx)
+        nvgMoveTo(nvgCtx, sx, ly)
+        nvgLineTo(nvgCtx, sx + shelf.w, ly)
+        nvgStrokeColor(nvgCtx, nvgRGBA(120, 90, 60, 200))
+        nvgStrokeWidth(nvgCtx, 1)
+        nvgStroke(nvgCtx)
+    end
 
-        -- 每层放一些彩色方块代表商品
+    -- 商品色块（3层×3列）
+    local tierH = sh / 4
+    for row = 1, 3 do
+        local ly = sy + row * tierH
         local itemCount = 3
-        local itemW = (sw - 20) / itemCount
+        local itemW = (shelf.w - 16) / itemCount
         for col = 1, itemCount do
-            local ix = sx + 8 + (col - 1) * (itemW + 2)
-            local iy = ly - (sh / 4) + 8
+            local ix = sx + 6 + (col - 1) * (itemW + 2)
+            local iy = ly - tierH + 10
             local iw = itemW - 2
-            local ih = (sh / 4) - 12
+            local ih = tierH - 14
 
-            -- 商品颜色根据分类不同
             local colors = {
                 snack = { { 255, 80, 80 }, { 255, 200, 50 }, { 100, 200, 100 } },
                 stationery = { { 50, 100, 200 }, { 200, 100, 200 }, { 100, 200, 200 } },
@@ -822,7 +819,7 @@ function RenderShelf(nvgCtx, shelf)
 
             nvgBeginPath(nvgCtx)
             nvgRoundedRect(nvgCtx, ix, iy, iw, ih, 2)
-            nvgFillColor(nvgCtx, nvgRGBA(c[1], c[2], c[3], 220))
+            nvgFillColor(nvgCtx, nvgRGBA(c[1], c[2], c[3], 200))
             nvgFill(nvgCtx)
         end
     end
@@ -832,7 +829,7 @@ function RenderShelf(nvgCtx, shelf)
     nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_TOP)
     nvgFillColor(nvgCtx, nvgRGBA(80, 60, 40, 255))
-    nvgText(nvgCtx, sx + sw / 2, FLOOR_Y + 5, shelf.label)
+    nvgText(nvgCtx, sx + shelf.w / 2, FLOOR_Y + 5, shelf.label)
 end
 
 function RenderCounter(nvgCtx)
@@ -846,56 +843,56 @@ function RenderCounter(nvgCtx)
     nvgRoundedRect(nvgCtx, cx, cy, cw, ch, 4)
     nvgFillColor(nvgCtx, nvgRGBA(100, 70, 40, 255))
     nvgFill(nvgCtx)
-
-    -- 柜台面
+    -- 柜台面板
     nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, cx - 5, cy, cw + 10, 6)
+    nvgRect(nvgCtx, cx + 5, cy + 5, cw - 10, 15)
     nvgFillColor(nvgCtx, nvgRGBA(140, 110, 70, 255))
     nvgFill(nvgCtx)
 
     -- 收银机
     nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, cx + 30, cy - 25, 35, 25, 3)
-    nvgFillColor(nvgCtx, nvgRGBA(50, 50, 60, 255))
+    nvgRoundedRect(nvgCtx, cx + 35, cy - 25, 30, 25, 3)
+    nvgFillColor(nvgCtx, nvgRGBA(60, 60, 70, 255))
     nvgFill(nvgCtx)
-    -- 屏幕
+    -- 收银机屏幕
     nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, cx + 33, cy - 22, 29, 15)
+    nvgRect(nvgCtx, cx + 38, cy - 22, 18, 10)
     nvgFillColor(nvgCtx, nvgRGBA(100, 200, 100, 200))
     nvgFill(nvgCtx)
 
-    -- 店员（站在柜台后面）
-    local npcX = cx + cw / 2
+    -- 店员
+    local npcX = cx + cw + 20
     local npcY = FLOOR_Y
-
     -- 身体
     nvgBeginPath(nvgCtx)
     nvgRoundedRect(nvgCtx, npcX - 12, npcY - 55, 24, 35, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255)) -- 蓝色制服
+    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 255))
     nvgFill(nvgCtx)
-
     -- 头
     nvgBeginPath(nvgCtx)
     nvgCircle(nvgCtx, npcX, npcY - 65, 12)
     nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
     nvgFill(nvgCtx)
-
-    -- 表情（微笑）
+    -- 腿
     nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, npcX - 4, npcY - 67, 2)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 40, 255))
+    nvgRect(nvgCtx, npcX - 7, npcY - 20, 5, 20)
+    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 60, 255))
     nvgFill(nvgCtx)
     nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, npcX + 4, npcY - 67, 2)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 40, 255))
+    nvgRect(nvgCtx, npcX + 2, npcY - 20, 5, 20)
+    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 60, 255))
     nvgFill(nvgCtx)
 
     -- 名牌
     nvgFontSize(nvgCtx, 8)
     nvgFontFace(nvgCtx, "sans")
     nvgTextAlign(nvgCtx, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
+    nvgBeginPath(nvgCtx)
+    nvgRoundedRect(nvgCtx, npcX - 14, npcY - 42, 28, 12, 2)
+    nvgFillColor(nvgCtx, nvgRGBA(30, 100, 180, 200))
+    nvgFill(nvgCtx)
     nvgFillColor(nvgCtx, nvgRGBA(255, 255, 255, 255))
-    nvgText(nvgCtx, npcX, npcY - 40, "店员")
+    nvgText(nvgCtx, npcX, npcY - 36, "店员")
 end
 
 function RenderShopPlayer(nvgCtx)

@@ -105,12 +105,15 @@ function WorldRenderer.Init(screenW, screenH)
             end
         end
 
+        local texInfo = AssetMap.Buildings[texIdx]
         local building = {
             x = x,
             y = groundY - h,
             w = w,
             h = h,
-            texPath = AssetMap.Buildings[texIdx],
+            texPath = texInfo.path,
+            texW = texInfo.w,
+            texH = texInfo.h,
             color = WorldRenderer.RandomBuildingColor(),
             windows = math.random(2, 5),
             windowLit = windowLit,
@@ -251,7 +254,7 @@ function WorldRenderer.Render(nvg, cameraX, screenW, screenH)
         for _, b in ipairs(layer) do
             local sx = b.x - pOffset
             if sx > -b.w and sx < screenW + b.w then
-                local by = groundY - b.h - b.yOffset
+                local by = groundY - b.h  -- 底部严格贴地面
                 AssetMap.DrawImage(nvg, b.texPath, sx, by, b.w, b.h, lrc.alpha)
             end
         end
@@ -261,8 +264,8 @@ function WorldRenderer.Render(nvg, cameraX, screenW, screenH)
     for _, b in ipairs(buildings) do
         local sx = b.x - cameraX
         if sx > -b.w - 50 and sx < screenW + 50 then
-            -- 绘制建筑贴图：保持素材原始宽高比(286:512≈0.559)，底部对齐地面
-            local texAspect = 286 / 512  -- 素材原始宽高比
+            -- 绘制建筑贴图：保持各贴图自身宽高比，底部严格对齐地面
+            local texAspect = b.texW / b.texH  -- 每张贴图各自的宽高比
             local drawW = b.w
             local drawH = drawW / texAspect  -- 按宽度计算保持比例的高度
             local drawY = groundY - drawH    -- 底部贴齐地面
@@ -322,10 +325,8 @@ function WorldRenderer.Render(nvg, cameraX, screenW, screenH)
     local groundH = Config.World.GroundHeight
     local groundHandle = AssetMap.GetImage(nvg, AssetMap.Environment.ground)
     if groundHandle > 0 then
-        -- 平铺：纹理按固定tile高度重复铺设，不拉伸
-        local tileH = groundH      -- 纹理tile高度 = 地面区域高度
+        local tileH = groundH
         local tileW = tileH * 1.79 -- 保持原始宽高比 (1024/572 ≈ 1.79)
-        -- 随相机滚动实现地面纹理滚动
         local offsetX = -(cameraX % tileW)
         local paint = nvgImagePattern(nvg, offsetX, groundY, tileW, tileH, 0, groundHandle, 1.0)
         nvgBeginPath(nvg)
@@ -346,18 +347,6 @@ function WorldRenderer.Render(nvg, cameraX, screenW, screenH)
     nvgStrokeColor(nvg, nvgRGBA(80, 80, 100, 200))
     nvgStrokeWidth(nvg, 2)
     nvgStroke(nvg)
-
-    -- 人行道标记（地面有贴图时不再需要程序化标记）
-    if not (groundHandle and groundHandle > 0) then
-        local markOffset = cameraX % 60
-        for i = 0, math.ceil(screenW / 60) + 1 do
-            local mx = i * 60 - markOffset
-            nvgBeginPath(nvg)
-            nvgRect(nvg, mx, groundY + 10, 30, 4)
-            nvgFillColor(nvg, nvgRGBA(80, 80, 90, 150))
-            nvgFill(nvg)
-        end
-    end
 
     -- ===== 可交互物品 =====
     WorldRenderer.RenderInteractables(nvg, cameraX, screenW)

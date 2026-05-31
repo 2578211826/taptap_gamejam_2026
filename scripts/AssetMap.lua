@@ -71,9 +71,12 @@ AssetMap.Interactables = {
 -- NPC (143×256 透明背景)
 -- ====================================================================
 AssetMap.NPC = {
-    -- 旧版单图NPC（兼容）
-    passerby_a = "image/npc/NPC_路人甲_20260530112658.png",
-    passerby_b = "image/npc/NPC_路人乙_20260530112634.png",
+    -- 玩家角色（Q版纸片人）
+    player = {
+        idle = "image/human/玩家/idle.png",
+        talk = "image/human/玩家/talk.png",
+        walk = "image/human/玩家/walk.png",
+    },
 
     -- 新版多动作角色（Q版纸片人）
     clerk = {
@@ -95,10 +98,9 @@ AssetMap.NPC = {
 
 -- NPC随机池（大地图路人使用，每次随机选一个）
 AssetMap.NPCPool = {
-    AssetMap.NPC.passerby_a,
-    AssetMap.NPC.passerby_b,
     AssetMap.NPC.merchant.walk,
     AssetMap.NPC.office_worker.walk,
+    AssetMap.NPC.clerk.idle,
 }
 
 -- ====================================================================

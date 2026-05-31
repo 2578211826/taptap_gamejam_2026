@@ -147,10 +147,10 @@ GenericInteriorScene.BuildingIndexMap = {
     -- 4 = 杂货铺(ShopScene专属), 7/9 = 网吧(InternetCafeScene专属)
     -- 其余用通用场景
     [1] = "residential",
-    [2] = "office",
-    [3] = "residential",
-    [5] = "abandoned",
-    [6] = "ramen",
+    [2] = "office",       -- 街道充电宝柜旁的建筑（也可进入）
+    [3] = "residential",  -- NPC路人旁的建筑（也可进入）
+    [5] = "abandoned",    -- NPC路人旁的建筑（也可进入）
+    [6] = "ramen",        -- 墙壁插座旁的建筑（也可进入）
     [8] = "ktv",
     [10] = "pharmacy",
     [11] = "office",

@@ -921,7 +921,7 @@ function RenderCounter(nvgCtx)
     local npcX = cx + cw + 20
     local npcY = FLOOR_Y
     local clerkSprite = AssetMap.NPC.clerk.idle
-    local clerkW, clerkH = 48, 72
+    local clerkW, clerkH = 64, 64
     local drawn = AssetMap.DrawImageBottom(nvgCtx, clerkSprite, npcX, npcY, clerkW, clerkH)
     if not drawn then
         -- 回退：简单矩形
@@ -1015,39 +1015,19 @@ end
 function RenderShopPlayer(nvgCtx)
     local px = playerX
     local py = FLOOR_Y
-
-    -- 腿
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, px - 6, py - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(60, 60, 80, 255))
-    nvgFill(nvgCtx)
-    nvgBeginPath(nvgCtx)
-    nvgRect(nvgCtx, px + 1, py - 20, 5, 20)
-    nvgFillColor(nvgCtx, nvgRGBA(60, 60, 80, 255))
-    nvgFill(nvgCtx)
-
-    -- 身体
-    nvgBeginPath(nvgCtx)
-    nvgRoundedRect(nvgCtx, px - 10, py - 50, 20, 30, 4)
-    nvgFillColor(nvgCtx, nvgRGBA(180, 80, 180, 255))
-    nvgFill(nvgCtx)
-
-    -- 头
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, px, py - 60, 10)
-    nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
-    nvgFill(nvgCtx)
-
-    -- 眼睛（朝向）
-    local eyeOffset = facingRight and 3 or -3
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, px + eyeOffset - 2, py - 62, 2)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 40, 255))
-    nvgFill(nvgCtx)
-    nvgBeginPath(nvgCtx)
-    nvgCircle(nvgCtx, px + eyeOffset + 2, py - 62, 2)
-    nvgFillColor(nvgCtx, nvgRGBA(40, 40, 40, 255))
-    nvgFill(nvgCtx)
+    local size = 64
+    local drawn = AssetMap.DrawImageBottom(nvgCtx, AssetMap.NPC.player.idle, px, py, size, size)
+    if not drawn then
+        -- 回退：简笔画
+        nvgBeginPath(nvgCtx)
+        nvgRoundedRect(nvgCtx, px - 10, py - 50, 20, 30, 4)
+        nvgFillColor(nvgCtx, nvgRGBA(180, 80, 180, 255))
+        nvgFill(nvgCtx)
+        nvgBeginPath(nvgCtx)
+        nvgCircle(nvgCtx, px, py - 60, 10)
+        nvgFillColor(nvgCtx, nvgRGBA(240, 200, 160, 255))
+        nvgFill(nvgCtx)
+    end
 end
 
 function RenderInteractPrompt(nvgCtx)

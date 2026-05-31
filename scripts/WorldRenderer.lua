@@ -153,20 +153,22 @@ function WorldRenderer.Init(screenW, screenH)
         elseif buildingIndex == 6 then
             table.insert(interactables, {
                 type = "outlet",
-                x = x + w / 2,
+                x = x + w + 25,  -- 放在建筑右侧间隙
                 y = groundY,
                 label = "墙壁插座",
                 icon = "plug",
                 buildingIndex = buildingIndex,
             })
         elseif buildingIndex == 3 or buildingIndex == 5 then
+            -- 从NPCPool随机选一个路人精灵
+            local poolIdx = math.random(1, #AssetMap.NPCPool)
             table.insert(interactables, {
                 type = "npc",
                 x = x + w + 25,  -- 放在建筑右侧间隙，不与建筑重叠
                 y = groundY,
                 label = "路人",
                 icon = "person",
-                npcIdx = (buildingIndex == 3) and 1 or 2,  -- 路人甲/乙
+                npcPoolIdx = poolIdx,  -- 随机池索引
                 buildingIndex = buildingIndex,
             })
         end
@@ -194,10 +196,8 @@ function WorldRenderer.Init(screenW, screenH)
         end
 
         -- 通用建筑（非专属场景的都可以进入）
-        -- 排除: 2=街道充电宝, 4=杂货铺, 6=插座, 7/9=网吧, 3/5=路人NPC(已在外面)
-        if buildingIndex ~= 2 and buildingIndex ~= 4 and buildingIndex ~= 6
-            and buildingIndex ~= 7 and buildingIndex ~= 9
-            and buildingIndex ~= 3 and buildingIndex ~= 5 then
+        -- 排除: 4=杂货铺(ShopScene), 7/9=网吧(InternetCafeScene)
+        if buildingIndex ~= 4 and buildingIndex ~= 7 and buildingIndex ~= 9 then
             local GenericInteriorScene = require("GenericInteriorScene")
             if GenericInteriorScene.ShouldHandle(buildingIndex) then
                 local cfg = GenericInteriorScene.GetConfig(buildingIndex)
@@ -473,14 +473,10 @@ function WorldRenderer.RenderInteractables(nvg, cameraX, screenW)
                 end
 
             elseif item.type == "npc" then
-                -- NPC贴图 (143×256 → 缩放到 40×72)
-                local npcPath
-                if item.npcIdx == 1 then
-                    npcPath = AssetMap.NPC.passerby_a
-                else
-                    npcPath = AssetMap.NPC.passerby_b
-                end
-                drawn = AssetMap.DrawImageBottom(nvg, npcPath, sx, iy, 40, 72)
+                -- NPC贴图：从随机池选取精灵（512x512正方形）
+                local poolIdx = item.npcPoolIdx or 1
+                local npcPath = AssetMap.NPCPool[poolIdx] or AssetMap.NPCPool[1]
+                drawn = AssetMap.DrawImageBottom(nvg, npcPath, sx, iy, 56, 56)
                 if not drawn then
                     -- 回退：简笔画小人
                     nvgBeginPath(nvg)
@@ -506,48 +502,25 @@ function WorldRenderer.RenderInteractables(nvg, cameraX, screenW)
 end
 
 function WorldRenderer.RenderPlayer(nvg, px, py, facingRight, phoneOpen)
-    -- 角色（简笔画风格，保持原样）
-    local dir = facingRight and 1 or -1
-
-    -- 身体
-    nvgBeginPath(nvg)
-    nvgRoundedRect(nvg, px - 12, py - 45, 24, 33, 5)
-    nvgFillColor(nvg, nvgRGBA(80, 80, 120, 255))
-    nvgFill(nvg)
-
-    -- 头
-    nvgBeginPath(nvg)
-    nvgCircle(nvg, px, py - 55, 12)
-    nvgFillColor(nvg, nvgRGBA(220, 185, 155, 255))
-    nvgFill(nvg)
-
-    -- 头发
-    nvgBeginPath(nvg)
-    nvgArc(nvg, px, py - 58, 12, -3.14, 0, 1)
-    nvgFillColor(nvg, nvgRGBA(40, 30, 20, 255))
-    nvgFill(nvg)
-
-    -- 腿
-    nvgBeginPath(nvg)
-    nvgRect(nvg, px - 8, py - 12, 7, 12)
-    nvgRect(nvg, px + 1, py - 12, 7, 12)
-    nvgFillColor(nvg, nvgRGBA(50, 50, 70, 255))
-    nvgFill(nvg)
-
-    -- 手和手机
-    if phoneOpen then
+    -- Q版玩家精灵（512x512正方形）
+    local playerSprite = phoneOpen and AssetMap.NPC.player.idle or AssetMap.NPC.player.walk
+    local size = 56
+    local drawn = AssetMap.DrawImageBottom(nvg, playerSprite, px, py, size, size)
+    if not drawn then
+        -- 回退：简笔画
+        local dir = facingRight and 1 or -1
         nvgBeginPath(nvg)
-        nvgRoundedRect(nvg, px + dir * 14, py - 50, 12, 20, 2)
-        nvgFillColor(nvg, nvgRGBA(20, 20, 30, 255))
+        nvgRoundedRect(nvg, px - 12, py - 45, 24, 33, 5)
+        nvgFillColor(nvg, nvgRGBA(80, 80, 120, 255))
         nvgFill(nvg)
         nvgBeginPath(nvg)
-        nvgRect(nvg, px + dir * 15, py - 48, 10, 16)
-        nvgFillColor(nvg, nvgRGBA(150, 200, 255, 200))
-        nvgFill(nvg)
-    else
-        nvgBeginPath(nvg)
-        nvgRect(nvg, px + dir * 10, py - 40, 6, 18)
+        nvgCircle(nvg, px, py - 55, 12)
         nvgFillColor(nvg, nvgRGBA(220, 185, 155, 255))
+        nvgFill(nvg)
+        nvgBeginPath(nvg)
+        nvgRect(nvg, px - 8, py - 12, 7, 12)
+        nvgRect(nvg, px + 1, py - 12, 7, 12)
+        nvgFillColor(nvg, nvgRGBA(50, 50, 70, 255))
         nvgFill(nvg)
     end
 end

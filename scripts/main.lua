@@ -67,6 +67,7 @@ local npcDialogueText = ""
 local npcDialogueOptions = {}  -- { {text, action}, ... }
 local npcDialogueChoice = 1
 local npcType = nil            -- "good" / "bad" / "neutral"
+local npcPoolIdx = nil         -- 当前对话NPC在NPCPool中的索引
 
 -- 老虎机博弈状态（NPC对话中触发）
 local slotGameOpen = false
@@ -567,57 +568,54 @@ function CreateMenuPanel()
         top = 0, left = 0, right = 0, bottom = 0,
         justifyContent = "center",
         alignItems = "center",
-        -- 背景铺满整个屏幕
+        -- 背景拉伸填满屏幕
         backgroundImage = "image/UI/04_主菜单/menu_bg_full.png",
-        backgroundFit = "cover",
+        backgroundFit = "fill",
         children = {
-            -- 按钮区域：垂直居中偏下，严格按参考图比例
+            -- 按钮区域：从电池下方开始（58%处）
             UI.Panel {
                 position = "absolute",
-                bottom = "8%",
+                top = "58%",
+                width = "100%",
                 alignItems = "center",
                 gap = 6,
                 children = {
-                    -- 开始游戏按钮（参考图中最大，约占屏幕宽35%）
-                    UI.Button {
+                    -- 开始游戏（裁剪后 196×62）
+                    UI.Panel {
                         id = "menuBtnStart",
-                        width = 320,
-                        height = 90,
+                        width = "22%",
+                        aspectRatio = 196 / 62,
                         backgroundImage = "image/UI/04_主菜单/btn_开始游戏.png",
-                        backgroundFit = "contain",
-                        backgroundColor = { 0, 0, 0, 0 },
-                        borderWidth = 0,
-                        text = "",
+                        backgroundFit = "fill",
                         onClick = function()
                             StartGame()
                         end,
                     },
-                    -- 设置按钮（参考图中较小，约占屏幕宽25%）
-                    UI.Button {
+                    -- 设置（裁剪后 202×65）
+                    UI.Panel {
                         id = "menuBtnSettings",
-                        width = 240,
-                        height = 68,
+                        width = "18%",
+                        aspectRatio = 202 / 65,
                         backgroundImage = "image/UI/04_主菜单/btn_设置.png",
-                        backgroundFit = "contain",
-                        backgroundColor = { 0, 0, 0, 0 },
-                        borderWidth = 0,
-                        text = "",
+                        backgroundFit = "fill",
                         onClick = function()
                             ShowSettingsPanel()
                         end,
                     },
-                    -- 关于按钮（参考图中与设置同大）
-                    UI.Button {
+                    -- 关于（裁剪后 137×45）
+                    UI.Panel {
                         id = "menuBtnAbout",
-                        width = 240,
-                        height = 68,
+                        width = "16%",
+                        aspectRatio = 137 / 45,
                         backgroundImage = "image/UI/04_主菜单/btn_关于.png",
-                        backgroundFit = "contain",
-                        backgroundColor = { 0, 0, 0, 0 },
-                        borderWidth = 0,
-                        text = "",
+                        backgroundFit = "fill",
                         onClick = function()
-                            ShowMessage("关于", "当前版本已经是最新版本", "知道了")
+                            local menu = uiRoot:FindById("menuPanel")
+                            if menu then menu:SetVisible(false) end
+                            ShowMessage("关于", "当前版本已经是最新版本", "知道了", function()
+                                local m = uiRoot:FindById("menuPanel")
+                                if m then m:SetVisible(true) end
+                            end)
                         end,
                     },
                     -- 操作提示
@@ -626,7 +624,7 @@ function CreateMenuPanel()
                         fontSize = 9,
                         fontColor = { 200, 200, 220, 180 },
                         textAlign = "center",
-                        marginTop = 6,
+                        marginTop = 4,
                     },
                 }
             }
@@ -959,17 +957,21 @@ function RenderChase(vg, sw, sh)
     local shopkeeperScreenX = chaseShopkeeperX - gs.cameraX
     local groundY = WorldRenderer.GetGroundY()
 
-    -- 店主身体
-    nvgBeginPath(vg)
-    nvgRoundedRect(vg, shopkeeperScreenX - 12, groundY - 48, 24, 40, 4)
-    nvgFillColor(vg, nvgRGBA(180, 60, 60, 255))
-    nvgFill(vg)
-
-    -- 店主头
-    nvgBeginPath(vg)
-    nvgCircle(vg, shopkeeperScreenX, groundY - 56, 10)
-    nvgFillColor(vg, nvgRGBA(255, 200, 150, 255))
-    nvgFill(vg)
+    -- 店主（使用Q版纸片人chase精灵）
+    local chaseSprite = AssetMap.NPC.clerk.chase
+    local clerkW, clerkH = 64, 64
+    local drawn = AssetMap.DrawImageBottom(vg, chaseSprite, shopkeeperScreenX, groundY, clerkW, clerkH)
+    if not drawn then
+        -- 回退：简单形状
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, shopkeeperScreenX - 12, groundY - 48, 24, 40, 4)
+        nvgFillColor(vg, nvgRGBA(180, 60, 60, 255))
+        nvgFill(vg)
+        nvgBeginPath(vg)
+        nvgCircle(vg, shopkeeperScreenX, groundY - 56, 10)
+        nvgFillColor(vg, nvgRGBA(255, 200, 150, 255))
+        nvgFill(vg)
+    end
 
     -- 怒气符号（闪烁）
     if math.floor(chaseTimer * 4) % 2 == 0 then
@@ -977,7 +979,7 @@ function RenderChase(vg, sw, sh)
         nvgFontSize(vg, 16)
         nvgFillColor(vg, nvgRGBA(255, 50, 50, 255))
         nvgTextAlign(vg, NVG_ALIGN_CENTER + NVG_ALIGN_MIDDLE)
-        nvgText(vg, shopkeeperScreenX, groundY - 72, "!!!")
+        nvgText(vg, shopkeeperScreenX, groundY - clerkH - 8, "!!!")
     end
 
     -- 追击提示条（顶部）
@@ -1337,15 +1339,16 @@ function HandleInteract()
 
     elseif item.type == "npc" then
         AudioManager.Interact()
-        OpenNPCDialogue()
+        OpenNPCDialogue(item.npcPoolIdx)
     end
 end
 
 -- ====================================================================
 -- NPC 对话系统
 -- ====================================================================
-function OpenNPCDialogue()
+function OpenNPCDialogue(poolIndex)
     AudioManager.NpcTalk()
+    npcPoolIdx = poolIndex  -- 存储当前NPC的池索引
     -- 判断 NPC 类型
     if gs.world.npcWillSteal then
         npcType = "bad"
@@ -2608,19 +2611,37 @@ function RenderNPCDialogue(vg, sw, sh)
     local charAreaY = panelY + 16
     local charAreaH = 110
 
-    -- 玩家小人（左侧，面朝右）
+    -- 玩家（左侧）— 使用Q版精灵talk状态
     local playerCX = panelX + 70
     local playerCY = charAreaY + charAreaH - 10
-    DrawStickFigure(vg, playerCX, playerCY, {60, 160, 255}, true)  -- 蓝色，面朝右
+    local playerSpriteSize = 56
+    local playerDrawn = AssetMap.DrawImageBottom(vg, AssetMap.NPC.player.talk, playerCX, playerCY, playerSpriteSize, playerSpriteSize)
+    if not playerDrawn then
+        DrawStickFigure(vg, playerCX, playerCY, {60, 160, 255}, true)
+    end
 
-    -- NPC 小人（右侧，面朝左）
+    -- NPC（右侧）— 使用Q版精灵talk状态
     local npcCX = panelX + panelW - 70
     local npcCY = charAreaY + charAreaH - 10
     local npcColor = { 120, 120, 120 }
     if npcType == "good" then npcColor = { 80, 200, 100 }
     elseif npcType == "bad" then npcColor = { 200, 80, 80 }
     end
-    DrawStickFigure(vg, npcCX, npcCY, npcColor, false)  -- 面朝左
+    -- 根据poolIdx确定NPC精灵：奸商walk对应idx3→用奸商talk，上班族walk对应idx4→用上班族talk
+    local npcTalkSprite = AssetMap.NPC.office_worker.talk  -- 默认上班族
+    if npcPoolIdx then
+        local poolPath = AssetMap.NPCPool[npcPoolIdx]
+        if poolPath == AssetMap.NPC.merchant.walk then
+            npcTalkSprite = AssetMap.NPC.merchant.talk
+        elseif poolPath == AssetMap.NPC.office_worker.walk then
+            npcTalkSprite = AssetMap.NPC.office_worker.talk
+        end
+    end
+    local npcSpriteSize = 56
+    local npcDrawn = AssetMap.DrawImageBottom(vg, npcTalkSprite, npcCX, npcCY, npcSpriteSize, npcSpriteSize)
+    if not npcDrawn then
+        DrawStickFigure(vg, npcCX, npcCY, npcColor, false)  -- 回退火柴人
+    end
 
     -- NPC 对话气泡（右上方，自动播放文字动画）
     local bubbleText = ""
@@ -2857,8 +2878,25 @@ function RenderSlotGame(vg, sw, sh)
     if npcType == "good" then npcColor = { 80, 200, 100 }
     elseif npcType == "bad" then npcColor = { 200, 80, 80 }
     end
-    DrawStickFigure(vg, playerCX, charY, {60, 160, 255}, true)
-    DrawStickFigure(vg, npcCX, charY, npcColor, false)
+    -- 玩家使用Q版精灵
+    local playerSlotDrawn = AssetMap.DrawImageBottom(vg, AssetMap.NPC.player.talk, playerCX, charY, 50, 50)
+    if not playerSlotDrawn then
+        DrawStickFigure(vg, playerCX, charY, {60, 160, 255}, true)
+    end
+    -- NPC使用Q版精灵
+    local slotNpcSprite = AssetMap.NPC.office_worker.talk
+    if npcPoolIdx then
+        local poolPath = AssetMap.NPCPool[npcPoolIdx]
+        if poolPath == AssetMap.NPC.merchant.walk then
+            slotNpcSprite = AssetMap.NPC.merchant.talk
+        elseif poolPath == AssetMap.NPC.office_worker.walk then
+            slotNpcSprite = AssetMap.NPC.office_worker.talk
+        end
+    end
+    local slotNpcDrawn = AssetMap.DrawImageBottom(vg, slotNpcSprite, npcCX, charY, 50, 50)
+    if not slotNpcDrawn then
+        DrawStickFigure(vg, npcCX, charY, npcColor, false)
+    end
 
     -- 谈判中的气泡（根据状态变化）
     local playerSays = "借我充电宝..."

@@ -5,20 +5,26 @@
     "id": "1666961261"
   },
   "entry": "main.lua",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "taptap_publish": {
-    "title": "<game title, required>",
-    "description": "<game description>",
-    "category": "<game category: rpg, casual, action, strategy, simulation, trivia, arcade, adventure, card, sports, racing, puzzle, educational, music, word, board>",
+    "title": "完蛋！我被手机做局了！",
+    "description": "手机只剩5%的电，而整座城市都在跟你作对。\n\n你是一个普通上班族，深夜加完班准备回家，却发现手机电量只剩5%。更糟糕的是，满屏的垃圾弹窗广告疯狂消耗着你最后的电量——充值返利、VIP尊享、首充6元送SSR……你必须在电量耗尽前，穿过这座充满套路的城市，找到充电的地方。\n\n在这个荒诞又真实的世界里：\n· 每一次误触广告都会消耗宝贵电量\n· 找路人乞讨充电宝可能获得救命稻草，也可能对方抢了你的手机就跑\n· 便利店、充电宝、路人……救命稻草藏在城市的每个角落\n· 你的选择决定结局——是成功充电，还是永远黑屏？\n\n一款关于现代人手机焦虑的黑色幽默冒险游戏，48小时GameJam作品。",
+    "category": "adventure",
     "screen_orientation": "landscape",
     "collection_type": "sce",
-    "trial_note": "<developer's note>",
-    "app_platforms": "1,2",
-    "developer_id": 199879
+    "trial_note": "48h GameJam作品，纸片人拼贴美术风格的荒诞冒险游戏。在城市街道中寻找充电机会，注意躲避垃圾广告弹窗！操作：点击/触屏交互，方向键移动。",
+    "app_platforms": "2",
+    "developer_id": 199879,
+    "app_id": 865078,
+    "miniapp_id": "tapmcfw4sikk4dx99t"
   },
   "assets": {
     "icon": "./assets/image/game_material/icon_v5A_电池放大_2_20260531044440.png",
-    "screenshots": [],
+    "screenshots": [
+      "./assets/image/game_material/screenshot_1_主菜单_crop.png",
+      "./assets/image/game_material/screenshot_2_乞讨充电宝_crop.png",
+      "./assets/image/game_material/screenshot_3_城市街景_crop.png"
+    ],
     "promotional_image": "./assets/image/game_material/promo_v4_A_极简电池_20260531045938.png",
     "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/icon_v5A_电池放大_2_20260531044440.png",
     "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/promo_v4_A_极简电池_20260531045938.png",
@@ -27,9 +33,15 @@
     "cover_vertical": "./game_material/COVER_VERTICAL_2026-05-31T05-08-09_01.png",
     "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/COVER_VERTICAL_2026-05-31T05-08-09_01.png",
     "square_promotional_image": "./game_material/SQUARE_PROMO_2026-05-31T05-08-09_01.jpg",
-    "square_promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/SQUARE_PROMO_2026-05-31T05-08-09_01.jpg"
+    "square_promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/完蛋！我被手机做局了！/SQUARE_PROMO_2026-05-31T05-08-09_01.jpg",
+    "screenshot_urls": [
+      "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/screenshot_1_主菜单_crop.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/screenshot_2_乞讨充电宝_crop.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/p_241d/screenshot_3_城市街景_crop.png"
+    ]
   },
   "metadata": {
-    "updated_at": "2026-05-31T05:08:11.042Z"
+    "updated_at": "2026-05-31T05:40:29.100Z",
+    "promo_dependent_hash": "52a2ca25c9ef51118abf4fc92d3c6b9c"
   }
 }
